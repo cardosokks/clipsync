@@ -775,7 +775,8 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.title("ClipSync Desktop")
         self.geometry("450x600")
         
-        # Ocultar da barra de tarefas no início
+        # Ocultar da barra de tarefas (Modo ToolWindow) e iniciar invisível
+        self.attributes("-toolwindow", 1)
         self.withdraw()
         
         self.last_clip = ""
@@ -790,8 +791,16 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._start_loops()
         self._setup_tray()
         
+        # No fechamento, apenas oculta
         self.protocol("WM_DELETE_WINDOW", self.withdraw)
         self.drop_zone = MagicBarOverlay(self, self.upload_files)
+
+    def deiconify(self):
+        # Sobrescrever para garantir foco e permanência fora da taskbar
+        super().deiconify()
+        self.attributes("-toolwindow", 1)
+        self.focus_force()
+        self.lift()
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
