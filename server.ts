@@ -708,61 +708,143 @@ def load_config():
 
 config = load_config()
 
-class SmartDropZoneOverlay(ctk.CTkToplevel):
+class MagicBarOverlay(ctk.CTkToplevel):
     def __init__(self, parent, upload_callback):
         super().__init__(parent)
+        self.parent = parent
         self.upload_callback = upload_callback
         self.is_active = True
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        
-        # Estado Inicial: Quase invisível e bem fino no topo
-        self.attributes("-alpha", 0.01)
+        self.attributes("-alpha", 0.0) # Invisível inicialmente
         
         screen_width = self.winfo_screenwidth()
-        self.width, self.full_height = 500, 85
-        self.ghost_height = 2
+        self.width = 700
+        self.collapsed_h = 4
+        self.expanded_h = 130
         self.x = (screen_width // 2) - (self.width // 2)
         
-        self.geometry(f"{self.width}x{self.ghost_height}+{self.x}+0")
+        self.current_h = self.collapsed_h
+        self.geometry(f"{self.width}x{self.current_h}+{self.x}+0")
 
-        self.frame = ctk.CTkFrame(self, corner_radius=20, fg_color="#0f172a", border_color="#3b82f6", border_width=2)
-        self.frame.pack(fill="both", expand=True, padx=4, pady=4)
+        # Container Principal com Glassmorphism
+        self.frame = ctk.CTkFrame(self, corner_radius=25, fg_color="#0f172a", border_color="#3b82f6", border_width=2)
+        self.frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        self.label = ctk.CTkLabel(self.frame, text="📥 Solte arquivos aqui para sincronizar", 
-                                 font=("Segoe UI", 13, "bold"), text_color="#60a5fa")
-        self.label.pack(expand=True)
+        # Área de Drop (visível apenas no Drag)
+        self.drop_label = ctk.CTkLabel(self.frame, text="📥 SOLTE PARA SINCRONIZAR", font=("Segoe UI", 11, "bold"), text_color="#3b82f6")
+        self.drop_label.pack(pady=(10, 0))
+        self.drop_label.pack_forget() # Escondido por padrão
 
-        # Configuração de DND
+        # Carrossel de Itens (Scrollable Horizontal)
+        self.scroll_frame = ctk.CTkScrollableFrame(self.frame, orientation="horizontal", fg_color="transparent", height=80)
+        self.scroll_frame.pack(fill="x", padx=15, pady=(5, 10))
+
+        # Configurações de DND
         self.drop_target_register(DND_FILES)
-        self.dnd_bind('<<DropEnter>>', self.on_drag_enter)
-        self.dnd_bind('<<DropLeave>>', self.on_drag_leave)
+        self.dnd_bind('<<DropEnter>>', lambda e: self.expand(mode="drop"))
+        self.dnd_bind('<<DropLeave>>', lambda e: self.collapse())
         self.dnd_bind('<<Drop>>', self.on_drop)
 
-    def on_drag_enter(self, event):
-        # Expande e mostra quando algo é arrastado para cima
-        self.geometry(f"{self.width}x{self.full_height}+{self.x}+0")
-        self.attributes("-alpha", 0.98)
-        return event.action
+        self.visible = False
+        self.hover_start = 0
+        self._start_logic_loop()
 
-    def on_drag_leave(self, event):
-        # Encolhe se o usuário desistir do arraste
-        self.collapse()
-        return event.action
+    def _start_logic_loop(self):
+        def loop():
+            while self.is_active:
+                try:
+                    px, py = self.winfo_pointerxy()
+                    # Detecta proximidade
+                    in_zone = (self.x < px < self.x + self.width) and (py < 10)
+                    
+                    if in_zone:
+                        if self.hover_start == 0: self.hover_start = time.time()
+                        # Se o mouse ficar parado por 0.4s no topo
+                        if time.time() - self.hover_start > 0.4 and not self.visible:
+                            self.expand(mode="browse")
+                    else:
+                        self.hover_start = 0
+                        if py > self.expanded_h + 20 and self.visible:
+                            self.collapse()
+                except: pass
+                time.sleep(0.1)
+        threading.Thread(target=loop, daemon=True).start()
+
+    def expand(self, mode="browse"):
+        if self.visible and mode == "browse": return
+        self.visible = True
+        self.attributes("-alpha", 0.98)
+        
+        if mode == "drop":
+            self.drop_label.pack(pady=(10, 0))
+            self.scroll_frame.pack_forget()
+        else:
+            self.drop_label.pack_forget()
+            self.scroll_frame.pack(fill="x", padx=15, pady=(5, 10))
+            self._render_items()
+
+        # Animação de Slide Down
+        for h in range(self.current_h, self.expanded_h, 8):
+            self.current_h = h
+            self.geometry(f"{self.width}x{h}+{self.x}+0")
+            self.update()
+            time.sleep(0.01)
 
     def collapse(self):
-        self.attributes("-alpha", 0.01)
-        self.geometry(f"{self.width}x{self.ghost_height}+{self.x}+0")
+        self.visible = False
+        # Animação de Slide Up
+        for h in range(self.current_h, self.collapsed_h, -10):
+            self.current_h = h
+            self.geometry(f"{self.width}x{h}+{self.x}+0")
+            self.update()
+            time.sleep(0.01)
+        self.attributes("-alpha", 0.0)
+
+    def _render_items(self):
+        # Limpar scroll
+        for widget in self.scroll_frame.winfo_children(): widget.destroy()
+        
+        # Buscar itens do app pai
+        items = getattr(self.parent, 'history_cache', [])
+        if not items:
+            ctk.CTkLabel(self.scroll_frame, text="Nenhum item recente", font=("Segoe UI", 10, "italic"), text_color="#64748b").pack(pady=20)
+            return
+
+        for item in items[:10]:
+            card = ctk.CTkFrame(self.scroll_frame, fg_color="#1e293b", corner_radius=12, width=160, height=70)
+            card.pack(side="left", padx=5)
+            card.pack_propagate(False)
+            
+            # Título/Tipo
+            icon = "🔗" if item['type'] == 'url' else "📄"
+            title = (item['title'][:18] + '..') if len(item['title']) > 18 else item['title']
+            
+            lbl = ctk.CTkLabel(card, text=f"{icon} {title}", font=("Segoe UI", 10, "bold"), text_color="#f8fafc")
+            lbl.pack(pady=(10, 2))
+            
+            sub = ctk.CTkLabel(card, text=item['deviceName'], font=("Segoe UI", 8), text_color="#94a3b8")
+            sub.pack()
+
+            # Click Event
+            def make_copy(content=item['content']):
+                pyperclip.copy(content)
+                self.parent.log("Copiado via Magic Bar!")
+                self.collapse()
+
+            card.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
+            lbl.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
+            sub.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
+            
+            # Hover effect
+            card.bind("<Enter>", lambda e, w=card: w.configure(fg_color="#334155"))
+            card.bind("<Leave>", lambda e, w=card: w.configure(fg_color="#1e293b"))
 
     def on_drop(self, event):
         files = re.findall(r'\{([^}]+)\}|(\S+)', event.data)
         paths = [f[0] or f[1] for f in files]
         self.upload_callback(paths)
         self.collapse()
-
-    def destroy(self):
-        self.is_active = False
-        super().destroy()
 
 class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def __init__(self):
@@ -772,6 +854,7 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.geometry("450x600")
         self.last_clip = ""
         self.last_remote_id = ""
+        self.history_cache = [] # Cache para a Magic Bar
         self.server_url = config.get("serverUrl", "${serverUrl}")
         self.device_id = config["deviceId"]
         self.device_name = config["deviceName"]
@@ -782,7 +865,7 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self._setup_tray()
         
         self.protocol("WM_DELETE_WINDOW", self.withdraw)
-        self.drop_zone = SmartDropZoneOverlay(self, self.upload_files)
+        self.drop_zone = MagicBarOverlay(self, self.upload_files)
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
