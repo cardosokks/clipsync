@@ -859,9 +859,11 @@ class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de 
 
     def _setup_tray(self):
         try:
+            from PIL import Image, ImageDraw
             img = Image.new('RGB', (64, 64), color=(59, 130, 246))
             d = ImageDraw.Draw(img)
             d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
+            
             menu = pystray.Menu(
                 pystray.MenuItem("Abrir ClipSync", self.show_window),
                 pystray.MenuItem("Sincronizar Agora", lambda: self.log("Sincronização manual...")),
@@ -874,16 +876,15 @@ class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de 
             print(f"Erro Tray: {e}")
 
     def _quit_app(self):
-        self.tray.stop()
-        self.master.destroy() # Fecha o root oculto, encerrando tudo
+        self.is_active = False
+        if hasattr(self, 'tray'):
+            self.tray.stop()
+        self.master.destroy()
 
 if __name__ == "__main__":
     import tkinter as tk
-    # O SEGREDO: Criar um root Tk oculto
     root = tk.Tk()
-    root.withdraw() # Esconde o root principal para sempre
-    
-    # ClipSyncApp agora é um Toplevel filho do root invisível
+    root.withdraw()
     app = ClipSyncApp(root)
     root.mainloop()
 `;
