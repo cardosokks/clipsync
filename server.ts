@@ -798,12 +798,12 @@ function Register-Device {
 }
 
 # 5. Monitoramento de Clipboard
-$LastClipboardText = ""
-$LastRemoteItemId = ""
+$script:LastClipboardText = ""
+$script:LastRemoteItemId = ""
 
 # Loop Principal (Executado no Background do Form)
 $Timer = New-Object System.Windows.Forms.Timer
-$Timer.Interval = 800
+$Timer.Interval = 1000
 $Timer.Add_Tick({
     # Tenta registrar se ainda não estiver ok
     if ($StatusLabel.ForeColor -ne "Green") {
@@ -813,14 +813,19 @@ $Timer.Add_Tick({
     try {
         # Sinc Local -> Servidor
         if ([System.Windows.Forms.Clipboard]::ContainsText()) {
-            $CurrentText = [System.Windows.Forms.Clipboard]::GetText()
-            if ($CurrentText -and $CurrentText -ne $LastClipboardText -and $CurrentText.Trim().Length -gt 0) {
+            $RawText = [System.Windows.Forms.Clipboard]::GetText()
+            if ($null -eq $RawText) { return }
+            
+            $CurrentText = $RawText.Trim()
+            
+            if ($CurrentText -and $CurrentText -ne $script:LastClipboardText -and $CurrentText.Length -gt 0) {
                 # Evita falso positivo em mudanças rápidas
-                Start-Sleep -Milliseconds 100
-                $VerifiedText = [System.Windows.Forms.Clipboard]::GetText()
-                if ($VerifiedText -ne $CurrentText -or $VerifiedText -eq $LastClipboardText) { return }
+                Start-Sleep -Milliseconds 200
+                $VerifiedText = [System.Windows.Forms.Clipboard]::GetText().Trim()
+                
+                if ($VerifiedText -ne $CurrentText -or $VerifiedText -eq $script:LastClipboardText) { return }
 
-                $LastClipboardText = $VerifiedText
+                $script:LastClipboardText = $VerifiedText
                 Write-Log "Enviando: $($VerifiedText.Substring(0, [Math]::Min(20, $VerifiedText.Length)))"
                 
                 $Type = if ($VerifiedText -match '^https?://') { 'url' } elseif ($VerifiedText -match '[\{\}\[\]\(\)=>:;]') { 'code' } else { 'text' }
@@ -832,7 +837,7 @@ $Timer.Add_Tick({
                     deviceName = $DeviceName
                     deviceType = "desktop"
                     category = if ($Type -eq 'url') { "Links" } elseif ($Type -eq 'code') { "Codigo" } else { "Textos" }
-                    tags = @("windows", "v1.5", "tray")
+                    tags = @("windows", "v1.6", "tray")
                 } | ConvertTo-Json -Compress
                 
                 Invoke-RestMethod -Uri "$ServerUrl/api/clipboard" -Method Post -Body $PostPayload -ContentType "application/json; charset=utf-8" -TimeoutSec 4 | Out-Null
@@ -843,10 +848,12 @@ $Timer.Add_Tick({
         $RemoteRes = Invoke-RestMethod -Uri "$ServerUrl/api/clipboard" -Method Get -TimeoutSec 3
         if ($RemoteRes -and $RemoteRes.items -and $RemoteRes.items.Count -gt 0) {
             $Latest = $RemoteRes.items[0]
-            if ($Latest.id -ne $LastRemoteItemId -and $Latest.deviceId -ne $DeviceId) {
-                $LastRemoteItemId = $Latest.id
-                if ($Latest.content -and $Latest.content -ne $LastClipboardText) {
-                    $LastClipboardText = $Latest.content
+            if ($Latest.id -ne $script:LastRemoteItemId -and $Latest.deviceId -ne $DeviceId) {
+                $script:LastRemoteItemId = $Latest.id
+                $IncomingText = $Latest.content.Trim()
+                
+                if ($IncomingText -ne $script:LastClipboardText) {
+                    $script:LastClipboardText = $IncomingText
                     [System.Windows.Forms.Clipboard]::SetText($Latest.content)
                     Write-Log "Recebido de $($Latest.deviceName)"
                     $TrayIcon.ShowBalloonTip(3000, "ClipSync", "Copiado de $($Latest.deviceName): $($Latest.title)", [System.Windows.Forms.ToolTipIcon]::Info)
