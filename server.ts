@@ -591,11 +591,12 @@ config = load_config()
 
 class MagicBarOverlay(ctk.CTkToplevel):
     def __init__(self, parent, upload_callback):
+        # Janela filha do root oculto para não aparecer na taskbar
         super().__init__(parent)
-        self.parent = parent
+        self.parent_app = parent # ClipSyncApp
         self.upload_callback = upload_callback
         self.is_active = True
-        self.overrideredirect(True)
+        self.overrideredirect(True) # Essencial para sumir da taskbar
         self.attributes("-topmost", True)
         self.attributes("-alpha", 0.0) 
         
@@ -611,8 +612,8 @@ class MagicBarOverlay(ctk.CTkToplevel):
         self.frame = ctk.CTkFrame(self, corner_radius=30, fg_color="#0f172a", border_color="#3b82f6", border_width=3)
         self.frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        self.drop_label = ctk.CTkLabel(self.frame, text="📥 SOLTE ARQUIVOS PARA SINCRONIZAR", font=("Segoe UI", 14, "bold"), text_color="#3b82f6")
-        self.drop_label.pack(pady=(20, 0))
+        self.drop_label = ctk.CTkLabel(self.frame, text="📥 SOLTE ARQUIVOS PARA SINCRONIZAR", font=("Segoe UI", 16, "bold"), text_color="#3b82f6")
+        self.drop_label.pack(expand=True)
         self.drop_label.pack_forget()
 
         self.scroll_frame = ctk.CTkScrollableFrame(self.frame, orientation="horizontal", fg_color="transparent", height=140)
@@ -624,7 +625,6 @@ class MagicBarOverlay(ctk.CTkToplevel):
         self.dnd_bind('<<Drop>>', self.on_drop)
 
         self.visible = False
-        self.hover_start = 0
         self._start_logic_loop()
 
     def _start_logic_loop(self):
@@ -633,23 +633,19 @@ class MagicBarOverlay(ctk.CTkToplevel):
                 try:
                     px, py = self.winfo_pointerxy()
                     
-                    # Pegar geometria real da janela
+                    # Gatilho: Tocar a borda superior extrema (Y <= 1)
+                    is_at_trigger = (self.x < px < self.x + self.width) and (py <= 1)
+                    
+                    # Geometria real da janela expandida
                     wx = self.winfo_rootx()
                     wy = self.winfo_rooty()
                     ww = self.winfo_width()
                     wh = self.winfo_height()
+                    is_over_window = (wx <= px <= wx + ww) and (wy <= py <= wy + wh)
                     
-                    # Está dentro da área da barra?
-                    is_over = (wx <= px <= wx + ww) and (wy <= py <= wy + wh)
-                    # Está no gatilho do topo?
-                    is_at_top = (self.x < px < self.x + self.width) and (py < 5)
-                    
-                    if is_at_top:
-                        if self.hover_start == 0: self.hover_start = time.time()
-                        if time.time() - self.hover_start > 2.0 and not self.visible:
-                            self.expand(mode="browse")
-                    elif not is_over: # SÓ OCULTA SE SAIR TOTALMENTE
-                        self.hover_start = 0
+                    if is_at_trigger and not self.visible:
+                        self.expand(mode="browse")
+                    elif not is_over_window: # SÓ OCULTA SE SAIR TOTALMENTE DA ÁREA EXPANDIDA
                         if self.visible:
                             self.collapse()
                 except: pass
@@ -662,32 +658,32 @@ class MagicBarOverlay(ctk.CTkToplevel):
         self.attributes("-alpha", 1.0)
         
         if mode == "drop":
-            self.drop_label.pack(pady=(40, 0))
+            self.drop_label.pack(expand=True, pady=40)
             self.scroll_frame.pack_forget()
         else:
             self.drop_label.pack_forget()
             self.scroll_frame.pack(fill="x", padx=20, pady=(10, 15))
             self._render_items()
 
-        # Slide suave
-        for h in range(self.current_h, self.expanded_h, 15):
+        # Slide rápido
+        for h in range(self.current_h, self.expanded_h, 20):
             self.current_h = h
             self.geometry(f"{self.width}x{h}+{self.x}+0")
             self.update()
-            time.sleep(0.005)
+            time.sleep(0.001)
 
     def collapse(self):
         self.visible = False
-        for h in range(self.current_h, self.collapsed_h, -20):
+        for h in range(self.current_h, self.collapsed_h, -25):
             self.current_h = h
             self.geometry(f"{self.width}x{h}+{self.x}+0")
             self.update()
-            time.sleep(0.005)
+            time.sleep(0.001)
         self.attributes("-alpha", 0.0)
 
     def _render_items(self):
         for widget in self.scroll_frame.winfo_children(): widget.destroy()
-        items = getattr(self.parent, 'history_cache', [])
+        items = getattr(self.parent_app, 'history_cache', [])
         if not items:
             ctk.CTkLabel(self.scroll_frame, text="Nenhum item na nuvem", font=("Segoe UI", 12), text_color="#64748b").pack(pady=40)
             return
@@ -714,70 +710,54 @@ class MagicBarOverlay(ctk.CTkToplevel):
 
             def handle_click(curr_item=item):
                 if curr_item['type'] in ['file', 'image']:
-                    # MODO DOWNLOAD
                     from tkinter import filedialog
                     import base64
-                    
                     ext = ""
                     if "fileMimeType" in curr_item and "/" in curr_item["fileMimeType"]:
                         ext = "." + curr_item["fileMimeType"].split("/")[-1]
-                    
-                    filename = curr_item.get("fileName", "arquivo_sincronizado" + ext)
-                    
-                    path = filedialog.asksaveasfilename(
-                        defaultextension=".*",
-                        initialfile=filename,
-                        title="Salvar arquivo da nuvem"
-                    )
-                    
+                    filename = curr_item.get("fileName", "arquivo" + ext)
+                    path = filedialog.asksaveasfilename(initialfile=filename, title="Salvar arquivo")
                     if path:
                         try:
-                            # Extrair base64 (data:...;base64,DATA)
-                            if "," in curr_item['content']:
-                                b64_data = curr_item['content'].split(",")[1]
-                                raw_data = base64.b64decode(b64_data)
-                                with open(path, "wb") as f:
-                                    f.write(raw_data)
-                                messagebox.showinfo("ClipSync", "Arquivo salvo com sucesso!")
-                                self.collapse()
+                            b64_data = curr_item['content'].split(",")[1] if "," in curr_item['content'] else curr_item['content']
+                            with open(path, "wb") as f:
+                                f.write(base64.b64decode(b64_data))
+                            messagebox.showinfo("ClipSync", "Salvo!")
                         except Exception as e:
-                            messagebox.showerror("Erro", f"Erro ao salvar: {str(e)}")
+                            messagebox.showerror("Erro", str(e))
                 else:
-                    # MODO COPIAR TEXTO
                     pyperclip.copy(curr_item['content'])
                     self.collapse()
 
-            # BINDING RECURSIVO (Garante que todo o card seja clicável)
             def bind_recursive(widget, func):
                 widget.bind("<Button-1>", lambda e: func())
-                for child in widget.winfo_children():
-                    bind_recursive(child, func)
+                for child in widget.winfo_children(): bind_recursive(child, func)
 
             bind_recursive(card, handle_click)
-            
-            # Efeito de Hover visual
-            def on_enter(e, w=card): w.configure(fg_color="#334155")
-            def on_leave(e, w=card): w.configure(fg_color="#1e293b")
-            
-            card.bind("<Enter>", on_enter)
-            card.bind("<Leave>", on_leave)
+            card.bind("<Enter>", lambda e, w=card: w.configure(fg_color="#334155"))
+            card.bind("<Leave>", lambda e, w=card: w.configure(fg_color="#1e293b"))
 
     def on_drop(self, event):
-        files = re.findall(r'\{([^}]+)\}|(\S+)', event.data)
-        paths = [f[0] or f[1] for f in files]
-        self.upload_callback(paths)
+        # Correção robusta para caminhos com espaços no Windows
+        data = event.data
+        if data.startswith('{') and data.endswith('}'):
+            paths = [data[1:-1]]
+        else:
+            files = re.findall(r'\{([^}]+)\}|(\S+)', data)
+            paths = [f[0] or f[1] for f in files]
+            
+        if paths:
+            self.parent_app.log(f"Processando {len(paths)} arquivos...")
+            self.upload_callback(paths)
         self.collapse()
 
-class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
-    def __init__(self):
-        super().__init__()
-        self.TkdndVersion = TkinterDnD._require(self)
-        self.title("ClipSync Desktop")
+class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de um Root oculto
+    def __init__(self, master):
+        super().__init__(master)
+        self.title("ClipSync")
         self.geometry("450x600")
-        
-        # Ocultar da barra de tarefas (Modo ToolWindow) e iniciar invisível
-        self.attributes("-toolwindow", 1)
-        self.withdraw()
+        self.attributes("-toolwindow", 1) # Não aparece na barra de tarefas
+        self.withdraw() # Inicia oculta
         
         self.last_clip = ""
         self.last_remote_id = ""
@@ -795,12 +775,10 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.protocol("WM_DELETE_WINDOW", self.withdraw)
         self.drop_zone = MagicBarOverlay(self, self.upload_files)
 
-    def deiconify(self):
-        # Sobrescrever para garantir foco e permanência fora da taskbar
-        super().deiconify()
-        self.attributes("-toolwindow", 1)
+    def show_window(self):
+        self.deiconify()
+        self.attributes("-topmost", True)
         self.focus_force()
-        self.lift()
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
@@ -880,16 +858,34 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         threading.Thread(target=sync_receiver, daemon=True).start()
 
     def _setup_tray(self):
-        img = Image.new('RGB', (64, 64), color=(59, 130, 246))
-        d = ImageDraw.Draw(img)
-        d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
-        menu = pystray.Menu(item('Abrir', self.deiconify), item('Sair', self.quit))
-        self.tray = pystray.Icon("ClipSync", img, "ClipSync", menu)
-        threading.Thread(target=self.tray.run, daemon=True).start()
+        try:
+            img = Image.new('RGB', (64, 64), color=(59, 130, 246))
+            d = ImageDraw.Draw(img)
+            d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
+            menu = pystray.Menu(
+                pystray.MenuItem("Abrir ClipSync", self.show_window),
+                pystray.MenuItem("Sincronizar Agora", lambda: self.log("Sincronização manual...")),
+                pystray.Menu.Separator(),
+                pystray.MenuItem("Sair", self._quit_app)
+            )
+            self.tray = pystray.Icon("ClipSync", img, "ClipSync", menu)
+            threading.Thread(target=self.tray.run, daemon=True).start()
+        except Exception as e:
+            print(f"Erro Tray: {e}")
+
+    def _quit_app(self):
+        self.tray.stop()
+        self.master.destroy() # Fecha o root oculto, encerrando tudo
 
 if __name__ == "__main__":
-    app = ClipSyncApp()
-    app.mainloop()
+    import tkinter as tk
+    # O SEGREDO: Criar um root Tk oculto
+    root = tk.Tk()
+    root.withdraw() # Esconde o root principal para sempre
+    
+    # ClipSyncApp agora é um Toplevel filho do root invisível
+    app = ClipSyncApp(root)
+    root.mainloop()
 `;
 
   // PowerShell One-Liner Installer script
