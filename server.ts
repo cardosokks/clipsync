@@ -716,31 +716,27 @@ class MagicBarOverlay(ctk.CTkToplevel):
         self.is_active = True
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.attributes("-alpha", 0.0) # Invisível inicialmente
+        self.attributes("-alpha", 0.0) 
         
         screen_width = self.winfo_screenwidth()
-        self.width = 700
-        self.collapsed_h = 4
-        self.expanded_h = 130
+        self.width = 900 # Aumentado
+        self.collapsed_h = 2
+        self.expanded_h = 200 # Aumentado
         self.x = (screen_width // 2) - (self.width // 2)
         
         self.current_h = self.collapsed_h
         self.geometry(f"{self.width}x{self.current_h}+{self.x}+0")
 
-        # Container Principal com Glassmorphism
-        self.frame = ctk.CTkFrame(self, corner_radius=25, fg_color="#0f172a", border_color="#3b82f6", border_width=2)
+        self.frame = ctk.CTkFrame(self, corner_radius=30, fg_color="#0f172a", border_color="#3b82f6", border_width=3)
         self.frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # Área de Drop (visível apenas no Drag)
-        self.drop_label = ctk.CTkLabel(self.frame, text="📥 SOLTE PARA SINCRONIZAR", font=("Segoe UI", 11, "bold"), text_color="#3b82f6")
-        self.drop_label.pack(pady=(10, 0))
-        self.drop_label.pack_forget() # Escondido por padrão
+        self.drop_label = ctk.CTkLabel(self.frame, text="📥 SOLTE ARQUIVOS PARA SINCRONIZAR", font=("Segoe UI", 14, "bold"), text_color="#3b82f6")
+        self.drop_label.pack(pady=(20, 0))
+        self.drop_label.pack_forget()
 
-        # Carrossel de Itens (Scrollable Horizontal)
-        self.scroll_frame = ctk.CTkScrollableFrame(self.frame, orientation="horizontal", fg_color="transparent", height=80)
-        self.scroll_frame.pack(fill="x", padx=15, pady=(5, 10))
+        self.scroll_frame = ctk.CTkScrollableFrame(self.frame, orientation="horizontal", fg_color="transparent", height=140)
+        self.scroll_frame.pack(fill="x", padx=20, pady=(10, 15))
 
-        # Configurações de DND
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<DropEnter>>', lambda e: self.expand(mode="drop"))
         self.dnd_bind('<<DropLeave>>', lambda e: self.collapse())
@@ -755,17 +751,25 @@ class MagicBarOverlay(ctk.CTkToplevel):
             while self.is_active:
                 try:
                     px, py = self.winfo_pointerxy()
-                    # Detecta proximidade
-                    in_zone = (self.x < px < self.x + self.width) and (py < 10)
                     
-                    if in_zone:
+                    # Pegar geometria real da janela
+                    wx = self.winfo_rootx()
+                    wy = self.winfo_rooty()
+                    ww = self.winfo_width()
+                    wh = self.winfo_height()
+                    
+                    # Está dentro da área da barra?
+                    is_over = (wx <= px <= wx + ww) and (wy <= py <= wy + wh)
+                    # Está no gatilho do topo?
+                    is_at_top = (self.x < px < self.x + self.width) and (py < 5)
+                    
+                    if is_at_top:
                         if self.hover_start == 0: self.hover_start = time.time()
-                        # Se o mouse ficar parado por 2.0s no topo
                         if time.time() - self.hover_start > 2.0 and not self.visible:
                             self.expand(mode="browse")
-                    else:
+                    elif not is_over: # SÓ OCULTA SE SAIR TOTALMENTE
                         self.hover_start = 0
-                        if py > self.expanded_h + 20 and self.visible:
+                        if self.visible:
                             self.collapse()
                 except: pass
                 time.sleep(0.1)
@@ -774,69 +778,59 @@ class MagicBarOverlay(ctk.CTkToplevel):
     def expand(self, mode="browse"):
         if self.visible and mode == "browse": return
         self.visible = True
-        self.attributes("-alpha", 0.98)
+        self.attributes("-alpha", 1.0)
         
         if mode == "drop":
-            self.drop_label.pack(pady=(10, 0))
+            self.drop_label.pack(pady=(40, 0))
             self.scroll_frame.pack_forget()
         else:
             self.drop_label.pack_forget()
-            self.scroll_frame.pack(fill="x", padx=15, pady=(5, 10))
+            self.scroll_frame.pack(fill="x", padx=20, pady=(10, 15))
             self._render_items()
 
-        # Animação de Slide Down
-        for h in range(self.current_h, self.expanded_h, 8):
+        # Slide suave
+        for h in range(self.current_h, self.expanded_h, 15):
             self.current_h = h
             self.geometry(f"{self.width}x{h}+{self.x}+0")
             self.update()
-            time.sleep(0.01)
+            time.sleep(0.005)
 
     def collapse(self):
         self.visible = False
-        # Animação de Slide Up
-        for h in range(self.current_h, self.collapsed_h, -10):
+        for h in range(self.current_h, self.collapsed_h, -20):
             self.current_h = h
             self.geometry(f"{self.width}x{h}+{self.x}+0")
             self.update()
-            time.sleep(0.01)
+            time.sleep(0.005)
         self.attributes("-alpha", 0.0)
 
     def _render_items(self):
-        # Limpar scroll
         for widget in self.scroll_frame.winfo_children(): widget.destroy()
-        
-        # Buscar itens do app pai
         items = getattr(self.parent, 'history_cache', [])
         if not items:
-            ctk.CTkLabel(self.scroll_frame, text="Nenhum item recente", font=("Segoe UI", 10, "italic"), text_color="#64748b").pack(pady=20)
+            ctk.CTkLabel(self.scroll_frame, text="Nenhum item na nuvem", font=("Segoe UI", 12), text_color="#64748b").pack(pady=40)
             return
 
-        for item in items[:10]:
-            card = ctk.CTkFrame(self.scroll_frame, fg_color="#1e293b", corner_radius=12, width=160, height=70)
-            card.pack(side="left", padx=5)
+        for item in items[:12]:
+            card = ctk.CTkFrame(self.scroll_frame, fg_color="#1e293b", corner_radius=15, width=220, height=120)
+            card.pack(side="left", padx=8)
             card.pack_propagate(False)
             
-            # Título/Tipo
             icon = "🔗" if item['type'] == 'url' else "📄"
-            title = (item['title'][:18] + '..') if len(item['title']) > 18 else item['title']
+            title = (item['title'][:25] + '..') if len(item['title']) > 25 else item['title']
             
-            lbl = ctk.CTkLabel(card, text=f"{icon} {title}", font=("Segoe UI", 10, "bold"), text_color="#f8fafc")
-            lbl.pack(pady=(10, 2))
-            
-            sub = ctk.CTkLabel(card, text=item['deviceName'], font=("Segoe UI", 8), text_color="#94a3b8")
-            sub.pack()
+            ctk.CTkLabel(card, text=f"{icon} {title}", font=("Segoe UI", 12, "bold"), text_color="#f8fafc", wraplength=180).pack(pady=(15, 5), padx=10)
+            ctk.CTkLabel(card, text=f"De: {item['deviceName']}", font=("Segoe UI", 10), text_color="#3b82f6").pack()
+            ctk.CTkLabel(card, text=time.strftime('%H:%M', time.localtime(item['createdAt']/1000)), font=("Segoe UI", 9), text_color="#64748b").pack(pady=5)
 
-            # Click Event
             def make_copy(content=item['content']):
                 pyperclip.copy(content)
-                self.parent.log("Copiado via Magic Bar!")
                 self.collapse()
 
             card.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
-            lbl.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
-            sub.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
+            for child in card.winfo_children():
+                child.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
             
-            # Hover effect
             card.bind("<Enter>", lambda e, w=card: w.configure(fg_color="#334155"))
             card.bind("<Leave>", lambda e, w=card: w.configure(fg_color="#1e293b"))
 
@@ -852,9 +846,13 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.TkdndVersion = TkinterDnD._require(self)
         self.title("ClipSync Desktop")
         self.geometry("450x600")
+        
+        # Ocultar da barra de tarefas no início
+        self.withdraw()
+        
         self.last_clip = ""
         self.last_remote_id = ""
-        self.history_cache = [] # Cache para a Magic Bar
+        self.history_cache = []
         self.server_url = config.get("serverUrl", "${serverUrl}")
         self.device_id = config["deviceId"]
         self.device_name = config["deviceName"]
