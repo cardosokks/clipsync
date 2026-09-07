@@ -692,19 +692,21 @@ from pystray import MenuItem as item
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".clipsync_config.json")
-SERVER_URL = "${serverUrl}"
-
+# Tentar carregar config local (criada pelo instalador)
+CONFIG_FILE = "config.json"
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
                 return json.load(f)
         except: pass
-    return {"deviceId": str(uuid.uuid4())[:8], "deviceName": socket.gethostname()}
+    return {
+        "deviceId": str(uuid.uuid4())[:8], 
+        "deviceName": socket.gethostname(),
+        "serverUrl": "${serverUrl}"
+    }
 
 config = load_config()
-with open(CONFIG_FILE, "w") as f: json.dump(config, f)
 
 class SmartDropZoneOverlay(ctk.CTkToplevel):
     def __init__(self, parent, upload_callback):
@@ -713,47 +715,50 @@ class SmartDropZoneOverlay(ctk.CTkToplevel):
         self.is_active = True
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.attributes("-alpha", 0.0)
+        
+        # Estado Inicial: Quase invisível e bem fino no topo
+        self.attributes("-alpha", 0.01)
         
         screen_width = self.winfo_screenwidth()
-        self.width, self.height = 500, 80
+        self.width, self.full_height = 500, 85
+        self.ghost_height = 2
         self.x = (screen_width // 2) - (self.width // 2)
-        self.geometry(f"{self.width}x{self.height}+{self.x}+0")
+        
+        self.geometry(f"{self.width}x{self.ghost_height}+{self.x}+0")
 
         self.frame = ctk.CTkFrame(self, corner_radius=20, fg_color="#0f172a", border_color="#3b82f6", border_width=2)
         self.frame.pack(fill="both", expand=True, padx=4, pady=4)
-        self.label = ctk.CTkLabel(self.frame, text="📥 Solte arquivos aqui para sincronizar", font=("Segoe UI", 13, "bold"), text_color="#60a5fa")
+        
+        self.label = ctk.CTkLabel(self.frame, text="📥 Solte arquivos aqui para sincronizar", 
+                                 font=("Segoe UI", 13, "bold"), text_color="#60a5fa")
         self.label.pack(expand=True)
 
+        # Configuração de DND
         self.drop_target_register(DND_FILES)
+        self.dnd_bind('<<DropEnter>>', self.on_drag_enter)
+        self.dnd_bind('<<DropLeave>>', self.on_drag_leave)
         self.dnd_bind('<<Drop>>', self.on_drop)
-        self.visible = False
-        self._start_checker()
 
-    def _start_checker(self):
-        def check():
-            while self.is_active:
-                try:
-                    py = self.winfo_pointery()
-                    px = self.winfo_pointerx()
-                    if py < 30 and (self.x - 100 < px < self.x + self.width + 100):
-                        if not self.visible:
-                            self.attributes("-alpha", 0.98)
-                            self.visible = True
-                    elif py > 120:
-                        if self.visible:
-                            self.attributes("-alpha", 0.0)
-                            self.visible = False
-                except: pass
-                time.sleep(0.2)
-        threading.Thread(target=check, daemon=True).start()
+    def on_drag_enter(self, event):
+        # Expande e mostra quando algo é arrastado para cima
+        self.geometry(f"{self.width}x{self.full_height}+{self.x}+0")
+        self.attributes("-alpha", 0.98)
+        return event.action
+
+    def on_drag_leave(self, event):
+        # Encolhe se o usuário desistir do arraste
+        self.collapse()
+        return event.action
+
+    def collapse(self):
+        self.attributes("-alpha", 0.01)
+        self.geometry(f"{self.width}x{self.ghost_height}+{self.x}+0")
 
     def on_drop(self, event):
         files = re.findall(r'\{([^}]+)\}|(\S+)', event.data)
         paths = [f[0] or f[1] for f in files]
         self.upload_callback(paths)
-        self.attributes("-alpha", 0.0)
-        self.visible = False
+        self.collapse()
 
     def destroy(self):
         self.is_active = False
@@ -767,7 +772,7 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.geometry("450x600")
         self.last_clip = ""
         self.last_remote_id = ""
-        self.server_url = SERVER_URL
+        self.server_url = config.get("serverUrl", "${serverUrl}")
         self.device_id = config["deviceId"]
         self.device_name = config["deviceName"]
 
@@ -969,19 +974,49 @@ services:
     ]
   };
 
-  // --- NOVO: GERADOR DE INSTALADOR PYTHON GUI ---
+  // --- NOVO: GERADOR DE INSTALADOR PYTHON GUI PROFISSIONAL ---
   const generatePythonGuiInstaller = (serverUrl: string) => `
 import tkinter as tk
 from tkinter import messagebox, ttk, filedialog
-import requests
 import os
 import subprocess
 import sys
 import threading
 import json
+import socket
+import uuid
+import shutil
 
 DEFAULT_SERVER_URL = "${serverUrl}"
-DEFAULT_INSTALL_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'ClipSync-Python')
+DEFAULT_INSTALL_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'ClipSync')
+
+UNINSTALLER_CODE = """
+import os
+import shutil
+import sys
+import tkinter as tk
+from tkinter import messagebox
+
+def uninstall():
+    path = os.path.dirname(os.path.abspath(__file__))
+    res = messagebox.askyesno("ClipSync", f"Deseja realmente remover o ClipSync de {path}?")
+    if res:
+        try:
+            # Remover do Startup
+            startup = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+            shortcut = os.path.join(startup, 'ClipSync.lnk')
+            if os.path.exists(shortcut): os.remove(shortcut)
+            
+            messagebox.showinfo("ClipSync", "Desinstalação concluída. Por favor, remova a pasta manualmente se necessário.")
+            sys.exit()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao desinstalar: {str(e)}")
+
+if __name__ == '__main__':
+    root = tk.Tk()
+    root.withdraw()
+    uninstall()
+"""
 
 class InstallerApp:
     def __init__(self, root):
@@ -993,13 +1028,13 @@ class InstallerApp:
         # Estilo
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure("TProgressbar", thickness=20, background='#38bdf8')
+        style.configure("TProgressbar", thickness=20, background='#3b82f6')
         
         self.main_frame = tk.Frame(root, bg='#0f172a', padx=30, pady=30)
         self.main_frame.pack(fill='both', expand=True)
         
-        tk.Label(self.main_frame, text="CLIPSINC", font=("Segoe UI", 24, "bold"), bg='#0f172a', fg='#38bdf8').pack(pady=(0, 5))
-        tk.Label(self.main_frame, text="Configuração de Instalação", font=("Segoe UI", 10), bg='#0f172a', fg='#94a3b8').pack(pady=(0, 20))
+        tk.Label(self.main_frame, text="CLIPSYNC", font=("Segoe UI", 24, "bold"), bg='#0f172a', fg='#3b82f6').pack(pady=(0, 5))
+        tk.Label(self.main_frame, text="Assistente de Instalação Windows", font=("Segoe UI", 10), bg='#0f172a', fg='#94a3b8').pack(pady=(0, 20))
         
         # Pasta de Instalação
         tk.Label(self.main_frame, text="Diretório de Instalação:", bg='#0f172a', fg='#f8fafc', font=("Segoe UI", 9, "bold")).pack(anchor='w')
@@ -1019,18 +1054,18 @@ class InstallerApp:
         self.server_entry.insert(0, DEFAULT_SERVER_URL)
         self.server_entry.pack(fill='x', pady=(5, 20), ipady=5)
 
-        self.status_label = tk.Label(self.main_frame, text="Pronto para iniciar", font=("Segoe UI", 9), bg='#0f172a', fg='#38bdf8')
+        self.status_label = tk.Label(self.main_frame, text="Pronto para sincronizar seu mundo", font=("Segoe UI", 9), bg='#0f172a', fg='#3b82f6')
         self.status_label.pack(pady=5)
         
         self.progress = ttk.Progressbar(self.main_frame, mode='determinate', style="TProgressbar")
         self.progress.pack(fill='x', pady=10)
         
         self.install_btn = tk.Button(self.main_frame, text="INSTALAR AGORA", command=self.start_install, 
-                                   bg='#2563eb', fg='white', font=("Segoe UI", 10, "bold"), 
+                                   bg='#2563eb', fg='white', font=("Segoe UI", 11, "bold"), 
                                    padx=20, pady=12, bd=0, cursor='hand2')
         self.install_btn.pack(pady=10)
         
-        self.log_area = tk.Text(self.main_frame, height=6, bg='#1e293b', fg='#94a3b8', font=("Consolas", 8), bd=0)
+        self.log_area = tk.Text(self.main_frame, height=6, bg='#020617', fg='#64748b', font=("Consolas", 8), bd=0)
         self.log_area.pack(fill='both', expand=True, pady=10)
 
     def browse_path(self):
@@ -1053,45 +1088,65 @@ class InstallerApp:
             target_dir = self.path_entry.get()
             server_url = self.server_entry.get()
             
-            self.status_label.config(text="Preparando ambiente...")
+            self.status_label.config(text="Criando diretórios...")
             if not os.path.exists(target_dir):
                 os.makedirs(target_dir)
             self.progress['value'] = 10
             
-            self.status_label.config(text="Instalando dependências (Pyperclip, Requests, Pystray, Pillow, Windnd)...")
-            self.log("Instalando bibliotecas via PIP...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "pyperclip", "requests", "pystray", "Pillow", "windnd"])
-            self.progress['value'] = 40
+            self.status_label.config(text="Instalando dependências...")
+            self.log("Executando: pip install requests pyperclip customtkinter Pillow pystray tkinterdnd2")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "pyperclip", "customtkinter", "Pillow", "pystray", "tkinterdnd2"])
+            self.progress['value'] = 50
             
-            self.status_label.config(text="Baixando código do cliente...")
-            self.log("Conectando ao servidor para baixar clipsync_overlay.py")
-            response = requests.get(f"{server_url}/api/client/python")
-            client_path = os.path.join(target_dir, "clipsync_overlay.py")
-            with open(client_path, "w", encoding='utf-8') as f:
-                f.write(response.text)
-            self.progress['value'] = 70
+            self.status_label.config(text="Copiando arquivos do cliente...")
+            # Copiar o próprio clipsync.py (que deve estar na mesma pasta do instalador)
+            if os.path.exists("clipsync.py"):
+                shutil.copy("clipsync.py", os.path.join(target_dir, "clipsync.py"))
+            else:
+                self.log("Baixando clipsync.py do servidor...")
+                import requests
+                res = requests.get(f"{server_url}/api/client/clipsync.py")
+                with open(os.path.join(target_dir, "clipsync.py"), "w", encoding='utf-8') as f:
+                    f.write(res.text)
             
-            self.status_label.config(text="Salvando configurações...")
-            config_data = {"serverUrl": server_url, "installPath": target_dir}
+            self.status_label.config(text="Gerando arquivos de configuração...")
+            config_data = {
+                "serverUrl": server_url,
+                "deviceId": str(uuid.uuid4())[:8],
+                "deviceName": socket.gethostname()
+            }
             with open(os.path.join(target_dir, "config.json"), "w") as f:
                 json.dump(config_data, f)
-            self.progress['value'] = 85
             
-            self.status_label.config(text="Configurando inicialização...")
-            self.log("Finalizando...")
+            # Criar Desinstalador
+            with open(os.path.join(target_dir, "uninstall.py"), "w", encoding='utf-8') as f:
+                f.write(UNINSTALLER_CODE)
+
+            self.progress['value'] = 80
+            
+            self.status_label.config(text="Configurando inicialização automática...")
+            startup_folder = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+            vbs_path = os.path.join(target_dir, "start.vbs")
+            with open(vbs_path, "w") as f:
+                f.write(f'Set WshShell = CreateObject("WScript.Shell")\\nWshShell.Run "{sys.executable.replace("python.exe", "pythonw.exe")} " & Chr(34) & "{os.path.join(target_dir, "clipsync.py")}" & Chr(34), 0, False')
+            
+            # Criar atalho no Startup (via VBS para ser simples)
+            shortcut_script = os.path.join(target_dir, "create_shortcut.vbs")
+            with open(shortcut_script, "w") as f:
+                f.write(f'Set oWS = WScript.CreateObject("WScript.Shell")\\nsLinkFile = "{os.path.join(startup_folder, "ClipSync.lnk")}"\\nSet oLink = oWS.CreateShortcut(sLinkFile)\\noLink.TargetPath = "wscript.exe"\\noLink.Arguments = "{vbs_path}"\\noLink.Save')
+            subprocess.call(["wscript.exe", shortcut_script])
+            
             self.progress['value'] = 100
+            self.log("Instalação concluída com sucesso!")
+            self.status_label.config(text="CONCLUÍDO!")
             
-            self.status_label.config(text="INSTALAÇÃO CONCLUÍDA!")
-            messagebox.showinfo("Sucesso", f"ClipSync instalado em: {target_dir}\\nO cliente será iniciado agora.")
-            
-            # Iniciar cliente
-            subprocess.Popen([sys.executable.replace('python.exe', 'pythonw.exe'), client_path], cwd=target_dir)
-            self.root.quit()
+            messagebox.showinfo("Sucesso", "ClipSync instalado com sucesso! O aplicativo iniciará agora em segundo plano.")
+            subprocess.Popen(["wscript.exe", vbs_path], cwd=target_dir)
+            self.root.destroy()
         except Exception as e:
             self.log(f"ERRO: {str(e)}")
-            messagebox.showerror("Erro na Instalação", f"Ocorreu um erro crítico: {str(e)}")
+            messagebox.showerror("Erro", f"Falha na instalação: {str(e)}")
             self.install_btn.config(state='normal')
-            self.browse_btn.config(state='normal')
 
 if __name__ == "__main__":
     root = tk.Tk()
@@ -1120,7 +1175,7 @@ if __name__ == "__main__":
     res.send(generatePythonGuiInstaller(serverUrl));
   });
 
-  // Complete ZIP Package Download with installer, daemon, configs, and documentation
+  // Complete ZIP Package Download with installer, client and documentation
   app.get('/api/download/windows-installer.zip', async (req: Request, res: Response) => {
     try {
       const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
@@ -1129,137 +1184,34 @@ if __name__ == "__main__":
 
       const zip = new JSZip();
 
-      // 1. Docker Compose
-      zip.file('docker-compose.yml', dockerComposeContent);
+      // 1. O instalador (Setup.py)
+      zip.file('Instalador-ClipSync.py', generatePythonGuiInstaller(serverUrl));
 
-      // 2. Python GUI Installer
-      zip.file('Instalador-Python-GUI.py', generatePythonGuiInstaller(serverUrl));
+      // 2. O cliente (clipsync.py)
+      zip.file('clipsync.py', generatePythonClient(serverUrl));
 
-      // 3. Instalar-ClipSync.cmd (PowerShell legacy)
-      const installCmd = `@echo off
-setlocal enabledelayedexpansion
-title Instalador ClipSync para Windows
-color 0b
-
-echo ===============================================================
-echo          INSTALADOR DO CLIENTE WINDOWS - CLIPSYNC v1.5.1
-echo ===============================================================
-echo.
-echo Este assistente instalara o agente de sincronizacao da area de
-echo transferencia no seu computador Windows.
-echo.
-echo Servidor Central: ${serverUrl}
-echo.
-
-set "TARGET_DIR=%APPDATA%\\ClipSync"
-if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
-
-echo [1/3] Baixando scripts atualizados...
-powershell -Command "Invoke-WebRequest -Uri '${serverUrl}/api/client/daemon.ps1' -OutFile '%TARGET_DIR%\\clipsync-daemon.ps1'"
-
-# Grava configuracao local
-echo { "serverUrl": "${serverUrl}", "version": "1.5.1" } > "%TARGET_DIR%\\config.json"
-
-echo [2/3] Configurando inicializacao automatica com o Windows...
-set "STARTUP_FOLDER=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
-
-# Cria VBS para execucao silenciosa
-echo Set WshShell = CreateObject("WScript.Shell") > "%TARGET_DIR%\\start-hidden.vbs"
-echo strPath = WshShell.ExpandEnvironmentStrings("%%APPDATA%%\\ClipSync\\clipsync-daemon.ps1") >> "%TARGET_DIR%\\start-hidden.vbs"
-echo WshShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File """ ^& strPath ^& """", 0, False >> "%TARGET_DIR%\\start-hidden.vbs"
-
-copy /y "%TARGET_DIR%\\start-hidden.vbs" "%STARTUP_FOLDER%\\ClipSync-Startup.vbs" >nul
-
-echo [3/3] Iniciando o agente ClipSync v1.5.1...
-wscript "%TARGET_DIR%\\start-hidden.vbs"
-
-echo.
-echo ===============================================================
-echo    SUCESSO! O ClipSync ja esta rodando no seu Windows!
-echo ===============================================================
-echo.
-echo Procure o icone azul na bandeja do sistema (perto do relogio).
-echo.
-echo Pressione qualquer tecla para concluir.
-pause >nul
-`;
-      zip.file('Instalar-ClipSync.cmd', installCmd);
-
-      // 2. clipsync-daemon.ps1
-      zip.file('clipsync-daemon.ps1', generateDaemonScript(serverUrl));
-
-      // 3. start-hidden.vbs
-      const startHiddenVbs = `Set WshShell = CreateObject("WScript.Shell")
-strPath = WshShell.ExpandEnvironmentStrings("%APPDATA%\\ClipSync\\clipsync-daemon.ps1")
-WshShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & strPath & """", 0, False
-`;
-      zip.file('start-hidden.vbs', startHiddenVbs);
-
-      // 4. Parar-ClipSync.cmd
-      const stopCmd = `@echo off
-title Parar ClipSync Windows
-color 0c
-echo Parando o servico ClipSync em segundo plano...
-powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*clipsync-daemon.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
-echo.
-echo O ClipSync foi encerrado. Para reinicia-lo, execute o arquivo Instalar-ClipSync.cmd ou start-hidden.vbs.
-pause
-`;
-      zip.file('Parar-ClipSync.cmd', stopCmd);
-
-      // 5. Executar-Visivel.cmd (Para ver logs em tempo real na janela do terminal)
-      const visibleCmd = `@echo off
-title ClipSync - Console de Depuracao em Tempo Real
-color 0a
-powershell.exe -ExecutionPolicy Bypass -NoExit -File "%~dp0clipsync-daemon.ps1"
-`;
-      zip.file('Executar-Visivel.cmd', visibleCmd);
-
-      // 6. config.json
-      const configJson = JSON.stringify(
-        {
-          serverUrl,
-          deviceName: 'Meu Computador Windows',
-          pollIntervalMs: 800,
-          autoStartWithWindows: true,
-          notifications: true,
-          version: '1.4.0',
-        },
-        null,
-        2
-      );
-      zip.file('config.json', configJson);
-
-      // 7. LEIA-ME.txt
+      // 3. LEIA-ME.txt
       const readmeTxt = `========================================================================
- ClipSync Windows Desktop Client - v1.4.0
- Sincronizacao de Area de Transferencia (Ctrl+C) em Tempo Real
+ ClipSync Windows Professional Client - v2.0
+ Sincronizacao de Area de Transferencia Profissional
 ========================================================================
 
 COMO INSTALAR:
-1. Extraia esta pasta ZIP em qualquer local do seu computador.
-2. Clique duas vezes em "Instalar-ClipSync.cmd".
-3. Pronto! O ClipSync sera configurado e iniciado silenciosamente em
-   segundo plano, integrando-se ao seu Windows.
-
-COMO FUNCIONA:
-- Sempre que voce copiar um texto, link ou codigo com Ctrl+C no seu PC,
-  o ClipSync envia automaticamente para o servidor central.
-- Sempre que voce copiar algo no seu celular (iPhone/Android), Mac ou
-  outro notebook conectado ao mesmo servidor, o item e baixado
-  imediatamente e colocado no seu Ctrl+C do Windows com uma notificacao!
-
-ARQUIVOS DO PACOTE:
-- Instalar-ClipSync.cmd: Assistente de 1 clique para instalacao.
-- Executar-Visivel.cmd: Executa exibindo a tela preta com logs de envio/recebimento.
-- Parar-ClipSync.cmd: Para o servico se quiser desativar temporariamente.
-- config.json: Configura a URL do servidor central (${serverUrl}).
+1. Extraia esta pasta ZIP completamente.
+2. Clique duas vezes em "Instalador-ClipSync.py".
+3. Siga o assistente de instalacao:
+   - Escolha o local de instalacao (Ex: Arquivos de Programas ou AppData).
+   - Confirme a URL do seu servidor.
+4. O instalador ira:
+   - Instalar dependencias necessarias.
+   - Criar um desinstalador na pasta escolhida.
+   - Configurar o ClipSync para iniciar automaticamente com o Windows.
 
 REQUISITOS:
-- Windows 10 ou Windows 11 (64-bit / ARM64).
-- PowerShell 5.1 ou superior (ja incluso nativamente no Windows).
+- Windows 10/11.
+- Python 3.10 ou superior instalado e no PATH.
 
-Servidor Conectado: ${serverUrl}
+Servidor: ${serverUrl}
 `;
       zip.file('LEIA-ME.txt', readmeTxt);
 
@@ -1270,12 +1222,12 @@ Servidor Conectado: ${serverUrl}
       });
 
       res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', 'attachment; filename="ClipSync-Windows-Client-v1.4.0.zip"');
+      res.setHeader('Content-Disposition', 'attachment; filename="ClipSync-Windows-Professional.zip"');
       res.setHeader('Content-Length', zipBuffer.length.toString());
       res.send(zipBuffer);
     } catch (err) {
-      console.error('Erro ao gerar instalador Windows:', err);
-      res.status(500).json({ error: 'Falha ao empacotar instalador Windows.' });
+      console.error('Erro ao gerar ZIP profissional:', err);
+      res.status(500).json({ error: 'Falha ao empacotar instalador profissional.' });
     }
   });
 

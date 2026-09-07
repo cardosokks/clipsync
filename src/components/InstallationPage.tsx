@@ -48,19 +48,19 @@ export const InstallationPage: React.FC<InstallationPageProps> = ({ onBack, serv
               <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400">
                 <Cpu className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-bold">Instalador GUI (Recomendado)</h3>
+              <h3 className="text-xl font-bold">Pacote Profissional (Recomendado)</h3>
             </div>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Interface amigável para Windows. Permite escolher pasta de instalação e gerenciar o agente via ícone na bandeja do sistema.
+              Instalador GUI completo em .ZIP. Inclui desinstalador automático, suporte a "Drop Zone" e inicialização com o Windows.
             </p>
             <div className="pt-4">
               <a
-                href={`${serverUrl}/api/client/clipsync.py`}
-                download="clipsync.py"
+                href={`${serverUrl}/api/download/windows-installer.zip`}
+                download="ClipSync-Windows-Professional.zip"
                 className="block w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-center transition-all shadow-xl shadow-blue-900/20 active:scale-[0.98] flex items-center justify-center gap-2"
               >
                 <Download className="w-5 h-5" />
-                Baixar Instalador Python
+                Baixar Instalador Profissional (.ZIP)
               </a>
             </div>
           </div>
