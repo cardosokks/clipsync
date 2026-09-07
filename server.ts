@@ -760,8 +760,8 @@ class MagicBarOverlay(ctk.CTkToplevel):
                     
                     if in_zone:
                         if self.hover_start == 0: self.hover_start = time.time()
-                        # Se o mouse ficar parado por 0.4s no topo
-                        if time.time() - self.hover_start > 0.4 and not self.visible:
+                        # Se o mouse ficar parado por 2.0s no topo
+                        if time.time() - self.hover_start > 2.0 and not self.visible:
                             self.expand(mode="browse")
                     else:
                         self.hover_start = 0
@@ -928,7 +928,10 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
             while True:
                 try:
                     res = requests.get(f"{self.server_url}/api/clipboard", timeout=5).json()
-                    if res["items"]:
+                    if res.get("items"):
+                        # Atualiza o cache para a Magic Bar
+                        self.history_cache = res["items"]
+                        
                         item = res["items"][0]
                         if item["id"] != self.last_remote_id and item["deviceId"] != self.device_id:
                             self.last_remote_id = item["id"]
