@@ -6,6 +6,8 @@ import { ItemPreviewModal } from './components/ItemPreviewModal';
 import { DeviceManagerModal } from './components/DeviceManagerModal';
 import { WindowsClientModal } from './components/WindowsClientModal';
 import { MainDashboard } from './components/MainDashboard';
+import { ManualEntryModal } from './components/ManualEntryModal';
+import { InstallationPage } from './components/InstallationPage';
 import { sounds } from './utils/sound';
 import { detectContentType, readFileAsDataUrl } from './utils/formatters';
 
@@ -13,10 +15,12 @@ export default function App() {
   const [items, setItems] = useState<ClipboardItem[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [activeDeviceId, setActiveDeviceId] = useState<string>('dev-current');
+  const [view, setView] = useState<'dashboard' | 'install'>('dashboard');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [previewItem, setPreviewItem] = useState<ClipboardItem | null>(null);
   const [isDeviceManagerOpen, setIsDeviceManagerOpen] = useState(false);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
+  const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
 
@@ -447,21 +451,28 @@ export default function App() {
       />
 
       {/* 2. Main Dashboard View */}
-      <MainDashboard
-        items={items}
-        devices={devices}
-        activeDevice={currentDevice}
-        onOpenDrawer={() => setIsDrawerOpen(true)}
-        onOpenDeviceManager={() => setIsDeviceManagerOpen(true)}
-        onTogglePin={handleTogglePin}
-        onDeleteItem={handleDeleteItem}
-        onPreviewItem={(item) => setPreviewItem(item)}
-        onPasteFromClipboard={handlePasteFromClipboard}
-        onAddNewItem={handleAddNewItem}
-        isSyncing={isSyncing}
-        onClearUnpinned={handleClearUnpinned}
-        onOpenWindowsClient={() => setIsWindowsModalOpen(true)}
-      />
+      {view === 'dashboard' ? (
+        <MainDashboard
+          items={items}
+          devices={devices}
+          activeDevice={currentDevice}
+          onOpenDrawer={() => setIsDrawerOpen(true)}
+          onOpenDeviceManager={() => setIsDeviceManagerOpen(true)}
+          onTogglePin={handleTogglePin}
+          onDeleteItem={handleDeleteItem}
+          onPreviewItem={(item) => setPreviewItem(item)}
+          onPasteFromClipboard={handlePasteFromClipboard}
+          onAddNewItem={() => setIsManualEntryOpen(true)}
+          isSyncing={isSyncing}
+          onClearUnpinned={handleClearUnpinned}
+          onOpenWindowsClient={() => setView('install')}
+        />
+      ) : (
+        <InstallationPage 
+          onBack={() => setView('dashboard')} 
+          serverUrl={window.location.origin} 
+        />
+      )}
 
       {/* 3. Quick-Access Clipboard Drawer (Activated by corner proximity or drag) */}
       <QuickClipboardDrawer
@@ -476,7 +487,7 @@ export default function App() {
         onPasteFromSystemClipboard={handlePasteFromClipboard}
         activeDevice={currentDevice}
         isSyncing={isSyncing}
-        onOpenWindowsClientModal={() => setIsWindowsModalOpen(true)}
+        onOpenWindowsClientModal={() => setView('install')}
       />
 
       {/* 4. Full Preview and Edit Modal */}
@@ -506,6 +517,13 @@ export default function App() {
         isOpen={isWindowsModalOpen}
         onClose={() => setIsWindowsModalOpen(false)}
         onAnnounce={announce}
+      />
+
+      {/* 7. Manual Entry Modal */}
+      <ManualEntryModal
+        isOpen={isManualEntryOpen}
+        onClose={() => setIsManualEntryOpen(false)}
+        onAdd={handleAddNewItem}
       />
     </div>
   );

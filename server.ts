@@ -2,6 +2,12 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import JSZip from 'jszip';
+import multer from 'multer';
+
+const upload = multer({ 
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  storage: multer.memoryStorage()
+});
 
 interface ClipboardItem {
   id: string;
@@ -184,248 +190,6 @@ async function startServer() {
 
   // --- API Endpoints ---
 
-  // Python Client Logic (Move to top for stability)
-  const generatePythonClient = (serverUrl: string) => `
-import tkinter as tk
-from tkinter import font as tkfont, messagebox
-import requests
-import pyperclip
-import threading
-import time
-import uuid
-import os
-import sys
-import json
-try:
-    import pystray
-    from PIL import Image, ImageDraw
-except ImportError:
-    pass
-
-# Para Arrastar Arquivos (Windows)
-try:
-    import windnd
-except ImportError:
-    windnd = None
-
-class ClipSyncClient:
-    def __init__(self, server_url="${serverUrl}"):
-        self.server_url = server_url
-        self.device_id = f"py-{uuid.uuid4().hex[:8]}"
-        self.device_name = os.environ.get('COMPUTERNAME', 'Python-Desktop')
-        self.last_clip = ""
-        self.last_remote_id = None
-        self.is_running = True
-        
-        # UI Principal (Overlay Bar)
-        self.root = tk.Tk()
-        self.root.title("ClipSync Overlay")
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.7)
-        self.root.configure(bg='#1e293b')
-        
-        # Posicionamento (Barra vertical no canto direito)
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        self.w, self.h = 40, 200
-        self.root.geometry(f"{self.w}x{self.h}+{sw-self.w}+{sh//2-100}")
-        
-        # Elementos Visuais
-        self.bar = tk.Frame(self.root, bg='#38bdf8', width=4)
-        self.bar.pack(side='right', fill='y')
-        
-        self.label = tk.Label(self.root, text="CLIP\nSYNC", bg='#1e293b', fg='white', font=("Segoe UI", 7, "bold"))
-        self.label.pack(pady=20)
-        
-        self.indicator = tk.Frame(self.root, bg='#38bdf8', height=4, width=20)
-        self.indicator.pack(pady=5)
-
-        # Drop Zone (Area de Arraste)
-        if windnd:
-            windnd.hook_dropfiles(self.root, self.handle_file_drop)
-            self.label.config(text="DROP\nHERE")
-
-        # Tray Icon
-        self.setup_tray()
-        
-        # Threads
-        threading.Thread(target=self.clipboard_loop, daemon=True).start()
-        threading.Thread(target=self.server_loop, daemon=True).start()
-        
-        self.register_device()
-        self.show_alert("ClipSync Ativo", "#10b981")
-
-    def setup_tray(self):
-        try:
-            # Criar ícone simples
-            image = Image.new('RGB', (64, 64), color=(56, 189, 248))
-            draw = ImageDraw.Draw(image)
-            draw.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
-            
-            menu = pystray.Menu(
-                pystray.MenuItem("Abrir Painel Web", self.open_web),
-                pystray.MenuItem("Configurações", self.show_config),
-                pystray.MenuItem("Sair", self.quit_app)
-            )
-            self.icon = pystray.Icon("ClipSync", image, "ClipSync", menu)
-            threading.Thread(target=self.icon.run, daemon=True).start()
-        except: pass
-
-    def handle_file_drop(self, files):
-        for f in files:
-            file_path = f.decode('utf-8') if isinstance(f, bytes) else f
-            filename = os.path.basename(file_path)
-            self.show_alert(f"Enviando: {filename[:15]}...", "#f59e0b")
-            threading.Thread(target=self.upload_file, args=(file_path,), daemon=True).start()
-
-    def upload_file(self, path):
-        try:
-            filename = os.path.basename(path)
-            with open(path, 'rb') as f:
-                # Simulando upload via base64 para compatibilidade com o servidor atual
-                import base64
-                data = f.read()
-                b64 = base64.b64encode(data).decode('utf-8')
-                
-                requests.post(f"{self.server_url}/api/clipboard", json={
-                    "type": "file",
-                    "title": filename,
-                    "fileName": filename,
-                    "fileSize": len(data),
-                    "content": f"data:application/octet-stream;base64,{b64}",
-                    "deviceId": self.device_id,
-                    "deviceName": self.device_name
-                }, timeout=30)
-                self.show_alert("Arquivo Enviado!", "#10b981")
-        except Exception as e:
-            self.show_alert("Erro no Upload", "#ef4444")
-
-    def show_alert(self, text, color):
-        self.indicator.config(bg=color)
-        # Em um cliente real, poderia mostrar um popup maior
-        print(f"[ClipSync] {text}")
-
-    def register_device(self):
-        try:
-            requests.post(f"{self.server_url}/api/devices", json={
-                "id": self.device_id, "name": self.device_name, "type": "desktop", "os": "Python Client v1.6"
-            }, timeout=3)
-        except: pass
-
-    def clipboard_loop(self):
-        self.last_clip = pyperclip.paste()
-        while self.is_running:
-            try:
-                curr = pyperclip.paste()
-                if curr and curr.strip() and curr != self.last_clip:
-                    # Pequeno delay para garantir que o usuário terminou de copiar
-                    time.sleep(0.1)
-                    curr = pyperclip.paste()
-                    
-                    if curr == self.last_clip: continue
-                    
-                    self.last_clip = curr
-                    requests.post(f"{self.server_url}/api/clipboard", json={
-                        "content": curr,
-                        "title": curr[:40] + "..." if len(curr) > 40 else curr,
-                        "type": "text",
-                        "deviceId": self.device_id,
-                        "deviceName": self.device_name
-                    }, timeout=5)
-                    self.show_alert("Copiado para Nuvem", "#38bdf8")
-            except: pass
-            time.sleep(1.0)
-
-    def server_loop(self):
-        while self.is_running:
-            try:
-                resp = requests.get(f"{self.server_url}/api/clipboard", timeout=5).json()
-                if resp.get('items'):
-                    latest = resp['items'][0]
-                    if latest['id'] != self.last_remote_id and latest['deviceId'] != self.device_id:
-                        self.last_remote_id = latest['id']
-                        if latest['content'] != self.last_clip:
-                            self.last_clip = latest['content']
-                            pyperclip.copy(latest['content'])
-                            self.show_alert("Sincronizado!", "#10b981")
-            except: pass
-            time.sleep(3)
-
-    def open_web(self):
-        import webbrowser
-        webbrowser.open(self.server_url)
-
-    def show_config(self):
-        messagebox.showinfo("ClipSync Config", f"Servidor: {self.server_url}\nID: {self.device_id}")
-
-    def quit_app(self):
-        self.is_running = False
-        try: self.icon.stop()
-        except: pass
-        self.root.quit()
-        sys.exit()
-
-if __name__ == "__main__":
-    # Carregar config se existir
-    config_path = os.path.join(os.path.dirname(__file__), "config.json")
-    url = "${serverUrl}"
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                url = config.get('serverUrl', url)
-        except: pass
-        
-    client = ClipSyncClient(url)
-    client.root.mainloop()
-`;
-
-  app.get('/api/client/python', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
-    console.log(`[API] Serving Python Client to ${req.ip}`);
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(generatePythonClient(serverUrl));
-  });
-
-  app.get('/api/client/install-python.ps1', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
-    console.log(`[API] Serving Python Installer (PS1) to ${req.ip}`);
-
-    const ps1 = `# ClipSync Python Client Installer
-Write-Host "Instalando ClipSync Python Overlay..." -ForegroundColor Cyan
-$ServerUrl = "${serverUrl}"
-$InstallDir = Join-Path $env:APPDATA "ClipSync-Python"
-
-if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir }
-
-Write-Host "Verificando dependencias..."
-pip install pyperclip requests --quiet
-
-Write-Host "Baixando Script..."
-$ScriptPath = Join-Path $InstallDir "clipsync_overlay.py"
-Invoke-WebRequest -Uri "$ServerUrl/api/client/python" -OutFile $ScriptPath
-
-Write-Host "Criando atalho de inicializacao..."
-$WshShell = New-Object -ComObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\ClipSync-Python.lnk")
-$Shortcut.TargetPath = "pythonw.exe"
-$Shortcut.Arguments = """$ScriptPath"""
-$Shortcut.WindowStyle = 7
-$Shortcut.Save()
-
-Write-Host "Iniciando..."
-Start-Process "pythonw.exe" -ArgumentList """$ScriptPath"""
-Write-Host "SUCESSO! ClipSync Python Ativo." -ForegroundColor Green
-`;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(ps1);
-  });
-
   // Health check
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: Date.now(), connectedClients: sseClients.size });
@@ -525,6 +289,40 @@ Write-Host "SUCESSO! ClipSync Python Ativo." -ForegroundColor Green
     broadcastSSE('clipboard_created', newItem);
 
     res.status(201).json({ item: newItem });
+  });
+  
+  // File Upload endpoint (multipart/form-data)
+  app.post('/api/upload', upload.single('file'), (req: Request, res: Response) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    }
+
+    const { deviceId = 'dev-desktop', deviceName = 'Windows Desktop' } = req.body;
+    const fileContent = req.file.buffer.toString('base64');
+    const type = req.file.mimetype.startsWith('image/') ? 'image' : 'file';
+
+    const newItem: ClipboardItem = {
+      id: 'clip-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      type,
+      title: req.file.originalname,
+      content: `data:${req.file.mimetype};base64,${fileContent}`,
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
+      fileMimeType: req.file.mimetype,
+      deviceId,
+      deviceName,
+      deviceType: 'desktop',
+      createdAt: Date.now(),
+      isPinned: false,
+      category: type === 'image' ? 'Imagens' : 'Arquivos',
+      tags: ['upload', 'desktop']
+    };
+
+    clipboardStore = [newItem, ...clipboardStore];
+    if (clipboardStore.length > 250) clipboardStore.pop();
+    
+    broadcastSSE('clipboard_created', newItem);
+    res.json({ success: true, item: newItem });
   });
 
   // Toggle pin or update item
@@ -873,51 +671,219 @@ Register-Device | Out-Null
 [System.Windows.Forms.Application]::Run()
 `;
 
+  // Professional Python GUI Client (v2.0)
+  const generatePythonClient = (serverUrl: string) => `
+import os
+import json
+import time
+import re
+import uuid
+import socket
+import threading
+import requests
+import pyperclip
+import customtkinter as ctk
+from tkinterdnd2 import TkinterDnD, DND_FILES
+from PIL import Image, ImageDraw
+import pystray
+from pystray import MenuItem as item
+
+# Configurações de Aparência
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
+
+CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".clipsync_config.json")
+SERVER_URL = "${serverUrl}"
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except: pass
+    return {"deviceId": str(uuid.uuid4())[:8], "deviceName": socket.gethostname()}
+
+config = load_config()
+with open(CONFIG_FILE, "w") as f: json.dump(config, f)
+
+class SmartDropZoneOverlay(ctk.CTkToplevel):
+    def __init__(self, parent, upload_callback):
+        super().__init__(parent)
+        self.upload_callback = upload_callback
+        self.is_active = True
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.0)
+        
+        screen_width = self.winfo_screenwidth()
+        self.width, self.height = 500, 80
+        self.x = (screen_width // 2) - (self.width // 2)
+        self.geometry(f"{self.width}x{self.height}+{self.x}+0")
+
+        self.frame = ctk.CTkFrame(self, corner_radius=20, fg_color="#0f172a", border_color="#3b82f6", border_width=2)
+        self.frame.pack(fill="both", expand=True, padx=4, pady=4)
+        self.label = ctk.CTkLabel(self.frame, text="📥 Solte arquivos aqui para sincronizar", font=("Segoe UI", 13, "bold"), text_color="#60a5fa")
+        self.label.pack(expand=True)
+
+        self.drop_target_register(DND_FILES)
+        self.dnd_bind('<<Drop>>', self.on_drop)
+        self.visible = False
+        self._start_checker()
+
+    def _start_checker(self):
+        def check():
+            while self.is_active:
+                try:
+                    py = self.winfo_pointery()
+                    px = self.winfo_pointerx()
+                    if py < 30 and (self.x - 100 < px < self.x + self.width + 100):
+                        if not self.visible:
+                            self.attributes("-alpha", 0.98)
+                            self.visible = True
+                    elif py > 120:
+                        if self.visible:
+                            self.attributes("-alpha", 0.0)
+                            self.visible = False
+                except: pass
+                time.sleep(0.2)
+        threading.Thread(target=check, daemon=True).start()
+
+    def on_drop(self, event):
+        files = re.findall(r'\{([^}]+)\}|(\S+)', event.data)
+        paths = [f[0] or f[1] for f in files]
+        self.upload_callback(paths)
+        self.attributes("-alpha", 0.0)
+        self.visible = False
+
+    def destroy(self):
+        self.is_active = False
+        super().destroy()
+
+class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
+    def __init__(self):
+        super().__init__()
+        self.TkdndVersion = TkinterDnD._require(self)
+        self.title("ClipSync Desktop")
+        self.geometry("450x600")
+        self.last_clip = ""
+        self.last_remote_id = ""
+        self.server_url = SERVER_URL
+        self.device_id = config["deviceId"]
+        self.device_name = config["deviceName"]
+
+        self._build_ui()
+        self._register_device()
+        self._start_loops()
+        self._setup_tray()
+        
+        self.protocol("WM_DELETE_WINDOW", self.withdraw)
+        self.drop_zone = SmartDropZoneOverlay(self, self.upload_files)
+
+    def _build_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.header = ctk.CTkFrame(self, fg_color="transparent")
+        self.header.pack(fill="x", padx=30, pady=30)
+        ctk.CTkLabel(self.header, text="ClipSync", font=("Segoe UI", 28, "bold"), text_color="#3b82f6").pack(anchor="w")
+        self.status = ctk.CTkLabel(self.header, text="Conectando...", font=("Segoe UI", 12), text_color="#64748b")
+        self.status.pack(anchor="w")
+
+        self.log_box = ctk.CTkTextbox(self, height=300, fg_color="#020617", border_color="#1e293b", border_width=1)
+        self.log_box.pack(fill="both", padx=30, pady=10)
+        self.log_box.configure(state="disabled")
+
+    def log(self, msg, type="info"):
+        self.log_box.configure(state="normal")
+        self.log_box.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    def _register_device(self):
+        try:
+            requests.post(f"{self.server_url}/api/devices", json={
+                "id": self.device_id, "name": self.device_name, "type": "desktop", "os": "Windows/Python"
+            }, timeout=5)
+            self.status.configure(text=f"Ativo: {self.server_url}", text_color="#22c55e")
+            self.log("Dispositivo pareado com sucesso.")
+        except:
+            self.status.configure(text="Erro de conexão", text_color="#ef4444")
+
+    def upload_files(self, paths):
+        for p in paths:
+            threading.Thread(target=self._upload_worker, args=(p,), daemon=True).start()
+
+    def _upload_worker(self, path):
+        try:
+            name = os.path.basename(path)
+            self.log(f"Enviando {name}...")
+            with open(path, "rb") as f:
+                res = requests.post(f"{self.server_url}/api/upload", 
+                                    files={"file": f}, 
+                                    data={"deviceId": self.device_id, "deviceName": self.device_name}, timeout=20)
+            if res.status_code < 300: self.log(f"✅ {name} enviado!", "success")
+        except: self.log(f"❌ Erro ao enviar {name}", "error")
+
+    def _start_loops(self):
+        def clip_monitor():
+            while True:
+                try:
+                    curr = pyperclip.paste().strip()
+                    if curr and curr != self.last_clip:
+                        self.last_clip = curr
+                        self.log(f"Sincronizando: {curr[:20]}...")
+                        requests.post(f"{self.server_url}/api/clipboard", json={
+                            "content": curr, "deviceId": self.device_id, "deviceName": self.device_name, "type": "text"
+                        }, timeout=5)
+                except: pass
+                time.sleep(1)
+
+        def sync_receiver():
+            while True:
+                try:
+                    res = requests.get(f"{self.server_url}/api/clipboard", timeout=5).json()
+                    if res["items"]:
+                        item = res["items"][0]
+                        if item["id"] != self.last_remote_id and item["deviceId"] != self.device_id:
+                            self.last_remote_id = item["id"]
+                            self.last_clip = item["content"].strip()
+                            pyperclip.copy(item["content"])
+                            self.log(f"📥 Recebido de {item['deviceName']}", "success")
+                except: pass
+                time.sleep(2)
+
+        threading.Thread(target=clip_monitor, daemon=True).start()
+        threading.Thread(target=sync_receiver, daemon=True).start()
+
+    def _setup_tray(self):
+        img = Image.new('RGB', (64, 64), color=(59, 130, 246))
+        d = ImageDraw.Draw(img)
+        d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
+        menu = pystray.Menu(item('Abrir', self.deiconify), item('Sair', self.quit))
+        self.tray = pystray.Icon("ClipSync", img, "ClipSync", menu)
+        threading.Thread(target=self.tray.run, daemon=True).start()
+
+if __name__ == "__main__":
+    app = ClipSyncApp()
+    app.mainloop()
+`;
+
   // PowerShell One-Liner Installer script
   const generateInstallerScript = (serverUrl: string) => `
-# ClipSync Quick Installer for Windows v1.5.1
-# Servidor: ${serverUrl}
-
-$ServerUrl = "${serverUrl}"
-$InstallDir = Join-Path $env:APPDATA "ClipSync"
-if (-not (Test-Path $InstallDir)) {
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-}
-
-$DaemonPath = Join-Path $InstallDir "clipsync-daemon.ps1"
-$ConfigPath = Join-Path $InstallDir "config.json"
-$VbsPath = Join-Path $InstallDir "start-hidden.vbs"
-
-# Grava configuracao
-$Config = @{
-    serverUrl = $ServerUrl
-    autoStart = $true
-    version = "1.5.1"
-} | ConvertTo-Json
-Set-Content -Path $ConfigPath -Value $Config -Encoding UTF8
-
-# Baixa o script principal do daemon
-Write-Host "Baixando ClipSync Agent v1.5.1..." -ForegroundColor Cyan
-Invoke-WebRequest -Uri "$ServerUrl/api/client/daemon.ps1" -OutFile $DaemonPath
-
-# Grava script de execucao silenciosa (VBS)
-$VbsContent = "Set WshShell = CreateObject(""WScript.Shell"")" + [Environment]::NewLine + \`
-    "WshShell.Run ""powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File """"" + $DaemonPath + """"""", 0, False"
-Set-Content -Path $VbsPath -Value $VbsContent -Encoding ASCII
-
-# Configura inicializacao automatica na pasta Startup do Windows
-$StartupFolder = [Environment]::GetFolderPath('Startup')
-$StartupVbs = Join-Path $StartupFolder "ClipSync-Startup.vbs"
-Copy-Item -Path $VbsPath -Destination $StartupVbs -Force
-
-# Inicia o agente agora mesmo
-Write-Host "Iniciando ClipSync em segundo plano..." -ForegroundColor Green
-Start-Process -FilePath "wscript.exe" -ArgumentList """$VbsPath"""
-
-Write-Host "========================================================" -ForegroundColor Green
-Write-Host " SUCESSO! ClipSync instalado e em execucao!            " -ForegroundColor White
-Write-Host "========================================================" -ForegroundColor Green
+# ClipSync Professional Installer (Python)
+Write-Host "Baixando ClipSync Desktop Client v2.0..." -ForegroundColor Cyan
+Invoke-WebRequest -Uri "$ServerUrl/api/client/clipsync.py" -OutFile "$HOME\\Desktop\\clipsync.py"
+Write-Host "SUCESSO! O cliente foi salvo na sua Area de Trabalho como clipsync.py" -ForegroundColor Green
+Write-Host "Certifique-se de ter Python 3 instalado e as bibliotecas necessarias:" -ForegroundColor Yellow
+Write-Host "pip install requests pyperclip customtkinter Pillow pystray tkinterdnd2" -ForegroundColor Gray
 `;
+
+  app.get('/api/client/clipsync.py', (req: Request, res: Response) => {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.get('host') || 'localhost:10500';
+    const serverUrl = `${protocol}://${host}`;
+    res.setHeader('Content-Type', 'text/x-python; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="clipsync.py"');
+    res.send(generatePythonClient(serverUrl));
+  });
 
   // PowerShell One-Liner Installer route
   app.get('/api/client/install.ps1', (req: Request, res: Response) => {
@@ -929,45 +895,7 @@ Write-Host "========================================================" -Foregroun
     res.send(generateInstallerScript(serverUrl));
   });
 
-  app.get('/api/client/daemon.ps1', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
-
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(generateDaemonScript(serverUrl));
-  });
-
-  // --- NOVO: WEBHOOK API ---
-  app.post('/api/webhooks/incoming', (req: Request, res: Response) => {
-    const { content, title, sender } = req.body;
-    
-    if (!content) {
-      return res.status(400).json({ error: 'Conteúdo é obrigatório' });
-    }
-
-    const newItem: ClipboardItem = {
-      id: Math.random().toString(36).substring(2, 11),
-      content,
-      title: title || (content.length > 30 ? content.substring(0, 30) + '...' : content),
-      type: content.match(/^https?:\/\//) ? 'url' : 'text',
-      createdAt: Date.now(),
-      deviceId: 'webhook',
-      deviceName: sender || 'External Webhook',
-      deviceType: 'desktop',
-      category: 'Webhooks',
-      tags: ['webhook', 'api'],
-      isPinned: false
-    };
-
-    clipboardStore.unshift(newItem);
-    if (clipboardStore.length > 50) clipboardStore.pop();
-    
-    broadcastSSE('new_item', newItem);
-    res.json({ status: 'success', item: newItem });
-  });
-
-  // Standalone 1-Click .CMD Installer Download
+  // Standard 1-Click .CMD Installer Download
   app.get('/api/download/ClipSync-QuickInstaller.cmd', (req: Request, res: Response) => {
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
     const host = req.get('host') || 'localhost:10500';

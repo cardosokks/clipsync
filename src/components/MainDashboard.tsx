@@ -163,239 +163,130 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
                 ClipSync
               </h1>
               <span className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-white/10 text-blue-300 border border-white/15">
-                Frosted Glass
+                V2.0
               </span>
             </div>
             <p className="text-xs text-slate-400 hidden sm:block">
-              Área de transferência inteligente e sincronizada entre seus aparelhos
+              Histórico de área de transferência sincronizado
             </p>
           </div>
         </div>
 
         {/* Center/Right Nav buttons */}
         <div className="flex items-center gap-2.5 sm:gap-3">
-          {/* Download Windows Client Button */}
+          {/* Installation Page Link */}
           <button
-            id="header-windows-client-btn"
             onClick={onOpenWindowsClient}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/35 text-xs text-blue-200 hover:text-white transition-all backdrop-blur-md shadow-sm active:scale-95"
-            title="Baixar instalador do cliente Windows"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-all backdrop-blur-md active:scale-95"
+            title="Ver guia de instalação"
           >
-            <svg className="w-3.5 h-3.5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.949-1.801" />
-            </svg>
-            <span className="font-semibold hidden md:inline">Instalador Windows</span>
-            <span className="md:hidden font-semibold">Windows</span>
+            <Download className="w-3.5 h-3.5 text-blue-400" />
+            <span className="font-bold hidden md:inline">Instalar Cliente</span>
           </button>
 
-          {/* Active device pill with live sync badge */}
+          {/* Device Manager */}
           <button
-            id="header-devices-btn"
             onClick={onOpenDeviceManager}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-all backdrop-blur-md"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-all backdrop-blur-md"
             title="Ver aparelhos cadastrados"
           >
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-medium hidden lg:inline">{activeDevice.name}</span>
-            <span className="font-mono text-[11px] text-slate-400 uppercase tracking-wider">
-              {devices.length} {devices.length === 1 ? 'dispositivo' : 'dispositivos'}
-            </span>
+            <span className="font-bold hidden lg:inline">{devices.length} Ativos</span>
           </button>
 
-          {/* Quick open drawer button with gradient glow */}
+          {/* Quick open drawer button */}
           <button
-            id="header-open-drawer-btn"
             onClick={onOpenDrawer}
-            className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-500/20 border border-white/20 active:scale-95"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-500/20 border border-white/20 active:scale-95"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Acesso Rápido</span>
-            <span className="text-[10px] font-mono bg-white/20 px-1.5 py-0.5 rounded-md text-white">
-              Alt+V
-            </span>
+            <span className="hidden sm:inline">Acesso Rápido</span>
+            <span className="md:hidden">Gaveta</span>
           </button>
         </div>
       </header>
 
       {/* Main Content Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-10 space-y-12">
-        {/* Modern Hero Section */}
-        <section className="flex flex-col lg:flex-row items-center gap-10 lg:gap-20">
-          <div className="flex-1 space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-bold text-blue-400 tracking-widest uppercase">
-              <Sparkles className="w-3 h-3" />
-              ClipSync Ecosystem
-            </div>
-            <h2 className="text-4xl md:text-5xl font-black text-white tracking-tight leading-[1.1]">
-              Sua área de transferência, <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">em qualquer lugar.</span>
-            </h2>
-            <p className="text-slate-400 text-lg leading-relaxed max-w-xl">
-              Sincronização instantânea e nativa entre Windows, Celular e Web. Arraste arquivos para o canto da tela para enviar à nuvem.
-            </p>
-            <div className="flex flex-wrap items-center gap-4 pt-4">
-              <button onClick={onOpenWindowsClient} className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold transition-all shadow-xl shadow-blue-900/20 active:scale-95 flex items-center gap-2">
-                <Download className="w-5 h-5" />
-                Download Agente v1.5.1
-              </button>
-              <a 
-                href="/api/download/windows-installer.zip" 
-                className="text-xs text-slate-500 hover:text-white transition-colors underline underline-offset-4"
-              >
-                ou baixar em .ZIP
-              </a>
-              <div className="w-px h-4 bg-white/10 mx-2 hidden md:block" />
-              <button onClick={onPasteFromClipboard} className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-2xl font-bold transition-all flex items-center gap-2">
-                <Clipboard className="w-5 h-5" />
-                Colar Manual
-              </button>
-            </div>
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-10 space-y-8">
+        {/* Simplified Header with Add Button */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
+          <div className="space-y-1">
+            <h2 className="text-3xl font-black text-white">Minha Nuvem</h2>
+            <p className="text-slate-500 text-sm">Gerencie o conteúdo sincronizado entre seus dispositivos.</p>
           </div>
-
-          {/* Quick Stats Grid */}
-          <div className="w-full lg:w-96 grid grid-cols-2 gap-4">
-            <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 backdrop-blur-md">
-              <div className="text-2xl font-black text-white">{items.length}</div>
-              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Itens Sincronizados</div>
-            </div>
-            <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 backdrop-blur-md">
-              <div className="text-2xl font-black text-white">{devices.length}</div>
-              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Dispositivos</div>
-            </div>
-            <div className="p-6 rounded-3xl col-span-2 bg-gradient-to-br from-blue-600/10 to-purple-600/10 border border-blue-500/20 backdrop-blur-md">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                </div>
-                <div className="text-[11px] font-bold text-slate-300">Sincronização em tempo real ativa</div>
-              </div>
-            </div>
+          
+          <div className="flex items-center gap-3">
+             <button 
+               onClick={() => setIsAddingManually(true)}
+               className="flex items-center gap-2 px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-sm transition-all shadow-xl shadow-blue-900/20 active:scale-95"
+             >
+               <Plus className="w-4 h-4" />
+               Adicionar Manual
+             </button>
+             <button 
+               onClick={onPasteFromClipboard}
+               className="p-3.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 rounded-2xl transition-all active:scale-95"
+               title="Colar da área de transferência local"
+             >
+               <Clipboard className="w-5 h-5" />
+             </button>
           </div>
-        </section>
+        </div>
 
         {/* Browser & Capture Bar */}
-        <section className="space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
-              {[
-                { id: 'all', label: 'Todos' },
-                { id: 'pinned', label: 'Fixados' },
-                { id: 'text', label: 'Textos' },
-                { id: 'file', label: 'Arquivos' },
-                { id: 'code', label: 'Código' },
-                { id: 'url', label: 'Links' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveCategory(tab.id as FilterCategory)}
-                  className={`px-5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                    activeCategory === tab.id
-                      ? 'bg-white text-black'
-                      : 'text-slate-500 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="relative w-full md:w-72">
-              <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar no histórico..."
-                className="w-full pl-11 pr-4 py-3 bg-white/[0.03] border border-white/10 rounded-2xl text-xs focus:ring-2 focus:ring-blue-500/30 outline-none transition-all"
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* Manual Note input row */}
-        {isAddingManually && (
-          <form
-            onSubmit={handleManualAdd}
-            className="p-4 rounded-2xl bg-white/5 backdrop-blur-xl border border-blue-500/40 flex items-center gap-2.5"
-          >
-            <input
-              type="text"
-              value={quickInput}
-              onChange={(e) => setQuickInput(e.target.value)}
-              placeholder="Digite qualquer texto para guardar no histórico sincronizado..."
-              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-              autoFocus
-            />
-            <button
-              type="submit"
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-colors border border-white/20"
-            >
-              Salvar
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsAddingManually(false)}
-              className="px-3 py-2.5 text-xs text-slate-400 hover:text-white"
-            >
-              Cancelar
-            </button>
-          </form>
-        )}
-
-        {/* Filter Pills & Stats Row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
-          {/* Category Tabs with Frosted Glass Buttons */}
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 text-xs">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2">
             {[
-              { id: 'all', label: 'Todos os Itens', count: items.length },
-              { id: 'pinned', label: 'Fixados', count: items.filter((i) => i.isPinned).length },
-              { id: 'text', label: 'Textos', count: items.filter((i) => i.type === 'text').length },
-              {
-                id: 'file',
-                label: 'Arquivos & Imagens',
-                count: items.filter((i) => i.type === 'file' || i.type === 'image').length,
-              },
-              { id: 'code', label: 'Código', count: items.filter((i) => i.type === 'code').length },
-              { id: 'url', label: 'Links', count: items.filter((i) => i.type === 'url').length },
+              { id: 'all', label: 'Todos' },
+              { id: 'pinned', label: 'Fixados' },
+              { id: 'text', label: 'Textos' },
+              { id: 'file', label: 'Arquivos' },
+              { id: 'code', label: 'Código' },
+              { id: 'url', label: 'Links' },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveCategory(tab.id as FilterCategory)}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all font-medium ${
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
                   activeCategory === tab.id
-                    ? 'bg-white/15 border border-white/20 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+                    ? 'bg-white text-black shadow-lg shadow-white/5'
+                    : 'text-slate-500 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <span>{tab.label}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    activeCategory === tab.id ? 'bg-white/20 text-white' : 'bg-white/5 text-slate-400'
-                  }`}
-                >
-                  {tab.count}
-                </span>
+                {tab.label}
               </button>
             ))}
           </div>
 
-          {/* Quick stats & cleanup */}
-          <div className="flex items-center gap-3 text-xs text-slate-400 flex-shrink-0">
-            <span className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-slate-500" />
-              <span>Sincronizado automaticamente</span>
-            </span>
-
-            {items.filter((i) => !i.isPinned).length > 0 && (
-              <button
-                onClick={onClearUnpinned}
-                className="text-xs text-slate-400 hover:text-rose-400 transition-colors flex items-center gap-1"
-                title="Limpar itens não fixados"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Limpar não fixados</span>
-              </button>
-            )}
+          <div className="relative w-full md:w-80">
+            <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Pesquisar histórico..."
+              className="w-full pl-11 pr-4 py-3.5 bg-white/[0.03] border border-white/10 rounded-2xl text-xs focus:ring-2 focus:ring-blue-500/30 outline-none transition-all placeholder:text-slate-600"
+            />
           </div>
+        </div>
+
+        {/* Quick status & cleanup */}
+        <div className="flex items-center justify-between px-2">
+          <div className="flex items-center gap-4 text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+            <span>{filteredItems.length} RESULTADOS</span>
+            <div className="w-1 h-1 rounded-full bg-slate-800" />
+            <span>SINC ATIVA</span>
+          </div>
+
+          {items.filter((i) => !i.isPinned).length > 0 && (
+            <button
+              onClick={onClearUnpinned}
+              className="text-[10px] font-bold text-slate-500 hover:text-rose-500 transition-colors flex items-center gap-1.5 uppercase tracking-wider"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Limpar históricos
+            </button>
+          )}
         </div>
 
         {/* Clipboard Items Grid - Minimalist Cards */}
