@@ -1,0 +1,6 @@
+{
+  "name": "ClipSync - Gerenciador de Área de Transferência",
+  "description": "Gerenciador de histórico do Ctrl+C com suporte a textos e arquivos, sincronização automática entre dispositivos e ativação rápida por arrasto e aproximação no canto superior direito.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

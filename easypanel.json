@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "name": "clipsync",
+      "image": "node:20-slim",
+      "build": {
+        "context": ".",
+        "dockerfile": "Dockerfile"
+      },
+      "env": "NODE_ENV=production\nPORT=10500",
+      "ports": [
+        {
+          "published": 10500,
+          "target": 10500
+        }
+      ],
+      "domains": [
+        {
+          "host": "$(EASYPANEL_DOMAIN)"
+        }
+      ]
+    }
+  ]
+}

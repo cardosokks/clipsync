@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  clipsync:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "10500:10500"
+    environment:
+      - NODE_ENV=production
+      - PORT=10500
+    restart: always
