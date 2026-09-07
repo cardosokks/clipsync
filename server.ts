@@ -41,128 +41,9 @@ interface Device {
 }
 
 // In-memory data store for synced items across connected devices
-let clipboardStore: ClipboardItem[] = [
-  {
-    id: 'clip-1',
-    type: 'code',
-    title: 'Exemplo de Script Docker Compose',
-    content: 'version: "3.8"\nservices:\n  redis:\n    image: redis:alpine\n    ports:\n      - "6379:6379"\n    volumes:\n      - redis_data:/data\nvolumes:\n  redis_data:',
-    deviceId: 'dev-mac-1',
-    deviceName: 'MacBook Pro M3 (Trabalho)',
-    deviceType: 'laptop',
-    createdAt: Date.now() - 1000 * 60 * 12,
-    isPinned: true,
-    category: 'Código',
-    tags: ['docker', 'devops'],
-    charCount: 147,
-    lineCount: 8,
-  },
-  {
-    id: 'clip-2',
-    type: 'url',
-    title: 'Documentação da API Clipboard Web',
-    content: 'https://developer.mozilla.org/pt-BR/docs/Web/API/Clipboard_API',
-    deviceId: 'dev-phone-1',
-    deviceName: 'iPhone 15 Pro (Celular)',
-    deviceType: 'mobile',
-    createdAt: Date.now() - 1000 * 60 * 35,
-    isPinned: false,
-    category: 'Links',
-    tags: ['web', 'docs'],
-    charCount: 65,
-    lineCount: 1,
-  },
-  {
-    id: 'clip-3',
-    type: 'text',
-    title: 'Chave Pix de Pagamento Compartilhado',
-    content: 'chave-pix-aleatoria-c89b71e2-9f30-47b2-a4e9-6f5d8e7c1a2b',
-    deviceId: 'dev-desk-1',
-    deviceName: 'PC Gamer (Casa)',
-    deviceType: 'desktop',
-    createdAt: Date.now() - 1000 * 60 * 120,
-    isPinned: true,
-    category: 'Textos',
-    tags: ['financeiro', 'pix'],
-    charCount: 56,
-    lineCount: 1,
-  },
-  {
-    id: 'clip-4',
-    type: 'file',
-    title: 'especificacao_projeto_v2.pdf',
-    fileName: 'especificacao_projeto_v2.pdf',
-    fileSize: 245800, // ~240 KB
-    fileMimeType: 'application/pdf',
-    content: 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrp/Og0MTGCjQgMCBvYmoKPDwKL0tpZHMgWzUgMCBSXQovQ291bnQgMQovVHlwZSAvUGFnZXMKPj4KZW5kb2JqCg==',
-    deviceId: 'dev-mac-1',
-    deviceName: 'MacBook Pro M3 (Trabalho)',
-    deviceType: 'laptop',
-    createdAt: Date.now() - 1000 * 60 * 240,
-    isPinned: false,
-    category: 'Documentos',
-    tags: ['pdf', 'projeto'],
-    charCount: 28,
-  },
-  {
-    id: 'clip-5',
-    type: 'text',
-    title: 'Instruções de Acesso ao Servidor SSH',
-    content: 'ssh -i ~/.ssh/cloud_deploy.pem admin@192.168.1.150 -p 2222',
-    deviceId: 'dev-desk-1',
-    deviceName: 'PC Gamer (Casa)',
-    deviceType: 'desktop',
-    createdAt: Date.now() - 1000 * 60 * 480,
-    isPinned: false,
-    category: 'Textos',
-    tags: ['ssh', 'terminal'],
-    charCount: 58,
-    lineCount: 1,
-  }
-];
+let clipboardStore: ClipboardItem[] = [];
 
-let registeredDevices: Device[] = [
-  {
-    id: 'dev-current',
-    name: 'Este Dispositivo (Web Browser)',
-    type: 'desktop',
-    isCurrent: true,
-    lastSeen: Date.now(),
-    os: 'Linux / Cloud',
-    browser: 'Chrome',
-    color: '#3b82f6',
-  },
-  {
-    id: 'dev-mac-1',
-    name: 'MacBook Pro M3 (Trabalho)',
-    type: 'laptop',
-    isCurrent: false,
-    lastSeen: Date.now() - 1000 * 60 * 3,
-    os: 'macOS Sonoma',
-    browser: 'Safari',
-    color: '#10b981',
-  },
-  {
-    id: 'dev-phone-1',
-    name: 'iPhone 15 Pro (Celular)',
-    type: 'mobile',
-    isCurrent: false,
-    lastSeen: Date.now() - 1000 * 60 * 15,
-    os: 'iOS 18',
-    browser: 'Mobile Safari',
-    color: '#8b5cf6',
-  },
-  {
-    id: 'dev-desk-1',
-    name: 'PC Gamer (Casa)',
-    type: 'desktop',
-    isCurrent: false,
-    lastSeen: Date.now() - 1000 * 60 * 90,
-    os: 'Windows 11',
-    browser: 'Edge',
-    color: '#f59e0b',
-  }
-];
+let registeredDevices: Device[] = [];
 
 // Active SSE client connections for real-time live broadcasting
 interface SSEClient {
@@ -812,27 +693,74 @@ class MagicBarOverlay(ctk.CTkToplevel):
             return
 
         for item in items[:12]:
-            card = ctk.CTkFrame(self.scroll_frame, fg_color="#1e293b", corner_radius=15, width=220, height=120)
+            card = ctk.CTkFrame(self.scroll_frame, fg_color="#1e293b", corner_radius=15, width=220, height=120, cursor="hand2")
             card.pack(side="left", padx=8)
             card.pack_propagate(False)
             
-            icon = "🔗" if item['type'] == 'url' else "📄"
-            title = (item['title'][:25] + '..') if len(item['title']) > 25 else item['title']
+            is_file = item['type'] in ['file', 'image']
+            icon = "📦" if item['type'] == 'file' else ("🖼️" if item['type'] == 'image' else ("🔗" if item['type'] == 'url' else "📄"))
+            title_text = (item['title'][:25] + '..') if len(item['title']) > 25 else item['title']
             
-            ctk.CTkLabel(card, text=f"{icon} {title}", font=("Segoe UI", 12, "bold"), text_color="#f8fafc", wraplength=180).pack(pady=(15, 5), padx=10)
-            ctk.CTkLabel(card, text=f"De: {item['deviceName']}", font=("Segoe UI", 10), text_color="#3b82f6").pack()
-            ctk.CTkLabel(card, text=time.strftime('%H:%M', time.localtime(item['createdAt']/1000)), font=("Segoe UI", 9), text_color="#64748b").pack(pady=5)
-
-            def make_copy(content=item['content']):
-                pyperclip.copy(content)
-                self.collapse()
-
-            card.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
-            for child in card.winfo_children():
-                child.bind("<Button-1>", lambda e, c=item['content']: make_copy(c))
+            # Layout do Card
+            lbl_title = ctk.CTkLabel(card, text=f"{icon} {title_text}", font=("Segoe UI", 12, "bold"), text_color="#f8fafc", wraplength=180, cursor="hand2")
+            lbl_title.pack(pady=(15, 5), padx=10)
             
-            card.bind("<Enter>", lambda e, w=card: w.configure(fg_color="#334155"))
-            card.bind("<Leave>", lambda e, w=card: w.configure(fg_color="#1e293b"))
+            lbl_device = ctk.CTkLabel(card, text=f"De: {item['deviceName']}", font=("Segoe UI", 10), text_color="#3b82f6", cursor="hand2")
+            lbl_device.pack()
+            
+            action_text = "⬇️ Clique para Salvar" if is_file else "📋 Clique para Copiar"
+            lbl_action = ctk.CTkLabel(card, text=action_text, font=("Segoe UI", 9, "italic"), text_color="#64748b", cursor="hand2")
+            lbl_action.pack(pady=5)
+
+            def handle_click(curr_item=item):
+                if curr_item['type'] in ['file', 'image']:
+                    # MODO DOWNLOAD
+                    from tkinter import filedialog
+                    import base64
+                    
+                    ext = ""
+                    if "fileMimeType" in curr_item and "/" in curr_item["fileMimeType"]:
+                        ext = "." + curr_item["fileMimeType"].split("/")[-1]
+                    
+                    filename = curr_item.get("fileName", "arquivo_sincronizado" + ext)
+                    
+                    path = filedialog.asksaveasfilename(
+                        defaultextension=".*",
+                        initialfile=filename,
+                        title="Salvar arquivo da nuvem"
+                    )
+                    
+                    if path:
+                        try:
+                            # Extrair base64 (data:...;base64,DATA)
+                            if "," in curr_item['content']:
+                                b64_data = curr_item['content'].split(",")[1]
+                                raw_data = base64.b64decode(b64_data)
+                                with open(path, "wb") as f:
+                                    f.write(raw_data)
+                                messagebox.showinfo("ClipSync", "Arquivo salvo com sucesso!")
+                                self.collapse()
+                        except Exception as e:
+                            messagebox.showerror("Erro", f"Erro ao salvar: {str(e)}")
+                else:
+                    # MODO COPIAR TEXTO
+                    pyperclip.copy(curr_item['content'])
+                    self.collapse()
+
+            # BINDING RECURSIVO (Garante que todo o card seja clicável)
+            def bind_recursive(widget, func):
+                widget.bind("<Button-1>", lambda e: func())
+                for child in widget.winfo_children():
+                    bind_recursive(child, func)
+
+            bind_recursive(card, handle_click)
+            
+            # Efeito de Hover visual
+            def on_enter(e, w=card): w.configure(fg_color="#334155")
+            def on_leave(e, w=card): w.configure(fg_color="#1e293b")
+            
+            card.bind("<Enter>", on_enter)
+            card.bind("<Leave>", on_leave)
 
     def on_drop(self, event):
         files = re.findall(r'\{([^}]+)\}|(\S+)', event.data)
