@@ -561,9 +561,12 @@ import re
 import uuid
 import socket
 import threading
+import base64
+import webbrowser
 import requests
 import pyperclip
 import customtkinter as ctk
+from tkinter import filedialog, messagebox
 from tkinterdnd2 import TkinterDnD, DND_FILES
 from PIL import Image, ImageDraw
 import pystray
@@ -573,192 +576,293 @@ from pystray import MenuItem as item
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-# Tentar carregar config local (criada pelo instalador)
 CONFIG_FILE = "config.json"
+
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except: pass
+        except Exception:
+            pass
     return {
         "deviceId": str(uuid.uuid4())[:8], 
         "deviceName": socket.gethostname(),
         "serverUrl": "${serverUrl}"
     }
 
+def save_config(config_data):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=4)
+    except Exception as e:
+        print(f"Erro ao salvar config: {e}")
+
 config = load_config()
+
 
 class MagicBarOverlay(ctk.CTkToplevel):
     def __init__(self, parent, upload_callback):
-        # Janela filha do root oculto para não aparecer na taskbar
         super().__init__(parent)
-        self.parent_app = parent # ClipSyncApp
+        self.parent = parent
         self.upload_callback = upload_callback
         self.is_active = True
-        self.overrideredirect(True) # Essencial para sumir da taskbar
-        self.attributes("-topmost", True)
-        self.attributes("-alpha", 0.0) 
+
+        # --- REMOVE 100% DA BARRA DE TAREFAS E DO ALT+TAB ---
+        self.transient(parent)                # Vínculo com a janela pai
+        self.overrideredirect(True)            # Remove bordas nativas do SO
+        self.attributes("-topmost", True)      # Sempre no topo
+        self.attributes("-toolwindow", True)   # Define como Janela de Ferramentas (não aparece na Taskbar)
+        
+        # Recorte de transparência para não exibir o fundo preto/quadrado
+        self.configure(fg_color="#000001")
+        self.attributes("-transparentcolor", "#000001")
         
         screen_width = self.winfo_screenwidth()
-        self.width = 900 # Aumentado
-        self.collapsed_h = 2
-        self.expanded_h = 200 # Aumentado
-        self.x = (screen_width // 2) - (self.width // 2)
+        self.width_val = 900
+        self.collapsed_h = 4
+        self.expanded_h = 210
+        self.x_pos = (screen_width // 2) - (self.width_val // 2)
         
         self.current_h = self.collapsed_h
-        self.geometry(f"{self.width}x{self.current_h}+{self.x}+0")
+        self.geometry(f"{self.width_val}x{self.current_h}+{self.x_pos}+0")
 
-        self.frame = ctk.CTkFrame(self, corner_radius=30, fg_color="#0f172a", border_color="#3b82f6", border_width=3)
-        self.frame.pack(fill="both", expand=True, padx=5, pady=5)
+        self.frame = ctk.CTkFrame(
+            self, 
+            corner_radius=24, 
+            fg_color="#0f172a", 
+            border_color="#3b82f6", 
+            border_width=2
+        )
+        self.frame.pack(fill="both", expand=True, padx=2, pady=2)
         
-        self.drop_label = ctk.CTkLabel(self.frame, text="📥 SOLTE ARQUIVOS PARA SINCRONIZAR", font=("Segoe UI", 16, "bold"), text_color="#3b82f6")
-        self.drop_label.pack(expand=True)
+        self.drop_label = ctk.CTkLabel(
+            self.frame, 
+            text="📥 SOLTE ARQUIVOS PARA SINCRONIZAR COM A NUVEM", 
+            font=("Segoe UI", 13, "bold"), 
+            text_color="#3b82f6"
+        )
+        self.drop_label.pack(pady=(40, 0))
         self.drop_label.pack_forget()
 
-        self.scroll_frame = ctk.CTkScrollableFrame(self.frame, orientation="horizontal", fg_color="transparent", height=140)
-        self.scroll_frame.pack(fill="x", padx=20, pady=(10, 15))
+        self.scroll_frame = ctk.CTkScrollableFrame(
+            self.frame, 
+            orientation="horizontal", 
+            fg_color="transparent", 
+            height=150
+        )
+        self.scroll_frame.pack(fill="x", padx=15, pady=(10, 15))
 
+        self._enable_mouse_wheel_scroll(self.scroll_frame)
+
+        # Registro de Drag & Drop nativo
         self.drop_target_register(DND_FILES)
         self.dnd_bind('<<DropEnter>>', lambda e: self.expand(mode="drop"))
         self.dnd_bind('<<DropLeave>>', lambda e: self.collapse())
         self.dnd_bind('<<Drop>>', self.on_drop)
 
         self.visible = False
-        self._start_logic_loop()
+        self.hover_start = 0
+        self._animating = False
 
-    def _start_logic_loop(self):
-        def loop():
-            while self.is_active:
-                try:
-                    px, py = self.winfo_pointerxy()
-                    
-                    # Gatilho: Tocar a borda superior extrema (Y <= 1)
-                    is_at_trigger = (self.x < px < self.x + self.width) and (py <= 1)
-                    
-                    # Geometria real da janela expandida
-                    wx = self.winfo_rootx()
-                    wy = self.winfo_rooty()
-                    ww = self.winfo_width()
-                    wh = self.winfo_height()
-                    is_over_window = (wx <= px <= wx + ww) and (wy <= py <= wy + wh)
-                    
-                    if is_at_trigger and not self.visible:
+        self.after(100, self._check_mouse_proximity)
+
+    def _enable_mouse_wheel_scroll(self, scrollable_frame):
+        """Mapeia a rodinha do mouse para rolagem horizontal."""
+        def _on_mouse_wheel(event):
+            if event.delta:
+                scrollable_frame._parent_canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+            else:
+                if event.num == 5:
+                    scrollable_frame._parent_canvas.xview_scroll(1, "units")
+                elif event.num == 4:
+                    scrollable_frame._parent_canvas.xview_scroll(-1, "units")
+
+        scrollable_frame.bind_all("<MouseWheel>", _on_mouse_wheel)
+        scrollable_frame.bind_all("<Button-4>", _on_mouse_wheel)
+        scrollable_frame.bind_all("<Button-5>", _on_mouse_wheel)
+
+    def _check_mouse_proximity(self):
+        if self.is_active:
+            try:
+                px, py = self.winfo_pointerxy()
+                wx, wy = self.winfo_rootx(), self.winfo_rooty()
+                ww, wh = self.winfo_width(), self.winfo_height()
+                
+                is_over = (wx <= px <= wx + ww) and (wy <= py <= wy + wh)
+                is_at_top = (self.x_pos < px < self.x_pos + self.width_val) and (py < 6)
+                
+                if is_at_top:
+                    if self.hover_start == 0:
+                        self.hover_start = time.time()
+                    if time.time() - self.hover_start > 0.3 and not self.visible:
                         self.expand(mode="browse")
-                    elif not is_over_window: # SÓ OCULTA SE SAIR TOTALMENTE DA ÁREA EXPANDIDA
-                        if self.visible:
-                            self.collapse()
-                except: pass
-                time.sleep(0.1)
-        threading.Thread(target=loop, daemon=True).start()
+                elif not is_over and self.visible and not self._animating:
+                    self.hover_start = 0
+                    self.collapse()
+            except Exception:
+                pass
+            self.after(100, self._check_mouse_proximity)
 
     def expand(self, mode="browse"):
-        if self.visible and mode == "browse": return
+        if self.visible and mode == "browse":
+            return
         self.visible = True
-        self.attributes("-alpha", 1.0)
         
         if mode == "drop":
-            self.drop_label.pack(expand=True, pady=40)
             self.scroll_frame.pack_forget()
+            self.drop_label.pack(pady=(40, 0))
         else:
             self.drop_label.pack_forget()
-            self.scroll_frame.pack(fill="x", padx=20, pady=(10, 15))
+            self.scroll_frame.pack(fill="x", padx=15, pady=(10, 15))
             self._render_items()
 
-        # Slide rápido
-        for h in range(self.current_h, self.expanded_h, 20):
-            self.current_h = h
-            self.geometry(f"{self.width}x{h}+{self.x}+0")
-            self.update()
-            time.sleep(0.001)
+        self._animate_height(self.expanded_h, step=25)
 
     def collapse(self):
+        if not self.visible:
+            return
         self.visible = False
-        for h in range(self.current_h, self.collapsed_h, -25):
-            self.current_h = h
-            self.geometry(f"{self.width}x{h}+{self.x}+0")
-            self.update()
-            time.sleep(0.001)
-        self.attributes("-alpha", 0.0)
+        self._animate_height(self.collapsed_h, step=-25)
+
+    def _animate_height(self, target_h, step):
+        self._animating = True
+        
+        def step_anim():
+            condition = (self.current_h < target_h) if step > 0 else (self.current_h > target_h)
+            if condition:
+                self.current_h += step
+                if (step > 0 and self.current_h > target_h) or (step < 0 and self.current_h < target_h):
+                    self.current_h = target_h
+                self.geometry(f"{self.width_val}x{self.current_h}+{self.x_pos}+0")
+                self.after(10, step_anim)
+            else:
+                self._animating = False
+
+        step_anim()
 
     def _render_items(self):
-        for widget in self.scroll_frame.winfo_children(): widget.destroy()
-        items = getattr(self.parent_app, 'history_cache', [])
+        for widget in self.scroll_frame.winfo_children():
+            widget.destroy()
+
+        items = getattr(self.parent, 'history_cache', [])
         if not items:
-            ctk.CTkLabel(self.scroll_frame, text="Nenhum item na nuvem", font=("Segoe UI", 12), text_color="#64748b").pack(pady=40)
+            ctk.CTkLabel(
+                self.scroll_frame, 
+                text="Nenhum item na nuvem", 
+                font=("Segoe UI", 12), 
+                text_color="#64748b"
+            ).pack(pady=40)
             return
 
-        for item in items[:12]:
-            card = ctk.CTkFrame(self.scroll_frame, fg_color="#1e293b", corner_radius=15, width=220, height=120, cursor="hand2")
-            card.pack(side="left", padx=8)
+        for item_data in items[:12]:
+            card = ctk.CTkFrame(
+                self.scroll_frame, 
+                fg_color="#1e293b", 
+                corner_radius=14, 
+                width=220, 
+                height=130, 
+                cursor="hand2"
+            )
+            card.pack(side="left", padx=6)
             card.pack_propagate(False)
             
-            is_file = item['type'] in ['file', 'image']
-            icon = "📦" if item['type'] == 'file' else ("🖼️" if item['type'] == 'image' else ("🔗" if item['type'] == 'url' else "📄"))
-            title_text = (item['title'][:25] + '..') if len(item['title']) > 25 else item['title']
+            is_file = item_data.get('type') in ['file', 'image']
+            icon = "📦" if item_data.get('type') == 'file' else ("🖼️" if item_data.get('type') == 'image' else ("🔗" if item_data.get('type') == 'url' else "📄"))
+            title = item_data.get('title', 'Sem título')
+            title_text = (title[:20] + '..') if len(title) > 20 else title
             
-            # Layout do Card
-            lbl_title = ctk.CTkLabel(card, text=f"{icon} {title_text}", font=("Segoe UI", 12, "bold"), text_color="#f8fafc", wraplength=180, cursor="hand2")
-            lbl_title.pack(pady=(15, 5), padx=10)
-            
-            lbl_device = ctk.CTkLabel(card, text=f"De: {item['deviceName']}", font=("Segoe UI", 10), text_color="#3b82f6", cursor="hand2")
-            lbl_device.pack()
+            header_frame = ctk.CTkFrame(card, fg_color="transparent")
+            header_frame.pack(fill="x", padx=8, pady=(8, 0))
+
+            lbl_title = ctk.CTkLabel(header_frame, text=f"{icon} {title_text}", font=("Segoe UI", 11, "bold"), text_color="#f8fafc")
+            lbl_title.pack(side="left")
+
+            btn_del = ctk.CTkButton(
+                header_frame, text="🗑️", width=22, height=22, fg_color="transparent", hover_color="#ef4444", 
+                font=("Segoe UI", 9), command=lambda it=item_data: self.parent.delete_item(it)
+            )
+            btn_del.pack(side="right")
+
+            btn_edit = ctk.CTkButton(
+                header_frame, text="✏️", width=22, height=22, fg_color="transparent", hover_color="#3b82f6", 
+                font=("Segoe UI", 9), command=lambda it=item_data: self.parent.open_edit_dialog(it)
+            )
+            btn_edit.pack(side="right", padx=2)
+
+            lbl_device = ctk.CTkLabel(card, text=f"De: {item_data.get('deviceName', 'Desconhecido')}", font=("Segoe UI", 9), text_color="#3b82f6")
+            lbl_device.pack(anchor="w", padx=10)
             
             action_text = "⬇️ Clique para Salvar" if is_file else "📋 Clique para Copiar"
-            lbl_action = ctk.CTkLabel(card, text=action_text, font=("Segoe UI", 9, "italic"), text_color="#64748b", cursor="hand2")
-            lbl_action.pack(pady=5)
+            lbl_action = ctk.CTkLabel(card, text=action_text, font=("Segoe UI", 9, "italic"), text_color="#64748b")
+            lbl_action.pack(pady=4)
 
-            def handle_click(curr_item=item):
-                if curr_item['type'] in ['file', 'image']:
-                    from tkinter import filedialog
-                    import base64
+            def handle_click(curr_item=item_data):
+                if curr_item.get('type') in ['file', 'image']:
                     ext = ""
                     if "fileMimeType" in curr_item and "/" in curr_item["fileMimeType"]:
                         ext = "." + curr_item["fileMimeType"].split("/")[-1]
-                    filename = curr_item.get("fileName", "arquivo" + ext)
-                    path = filedialog.asksaveasfilename(initialfile=filename, title="Salvar arquivo")
+                    
+                    filename = curr_item.get("fileName", "arquivo_sincronizado" + ext)
+                    path = filedialog.asksaveasfilename(
+                        defaultextension=".*",
+                        initialfile=filename,
+                        title="Salvar arquivo da nuvem"
+                    )
                     if path:
                         try:
-                            b64_data = curr_item['content'].split(",")[1] if "," in curr_item['content'] else curr_item['content']
-                            with open(path, "wb") as f:
-                                f.write(base64.b64decode(b64_data))
-                            messagebox.showinfo("ClipSync", "Salvo!")
+                            content = curr_item.get('content', '')
+                            if "," in content:
+                                b64_data = content.split(",")[1]
+                                raw_data = base64.b64decode(b64_data)
+                                with open(path, "wb") as f:
+                                    f.write(raw_data)
+                                messagebox.showinfo("ClipSync", "Arquivo salvo com sucesso!")
+                                self.collapse()
                         except Exception as e:
-                            messagebox.showerror("Erro", str(e))
+                            messagebox.showerror("Erro", f"Erro ao salvar: {str(e)}")
                 else:
-                    pyperclip.copy(curr_item['content'])
+                    pyperclip.copy(curr_item.get('content', ''))
+                    self.parent.log("Texto copiado para a área de transferência!")
                     self.collapse()
 
-            def bind_recursive(widget, func):
-                widget.bind("<Button-1>", lambda e: func())
-                for child in widget.winfo_children(): bind_recursive(child, func)
+            def on_enter(e, target_card=card):
+                target_card.configure(fg_color="#334155")
 
-            bind_recursive(card, handle_click)
-            card.bind("<Enter>", lambda e, w=card: w.configure(fg_color="#334155"))
-            card.bind("<Leave>", lambda e, w=card: w.configure(fg_color="#1e293b"))
+            def on_leave(e, target_card=card):
+                try:
+                    px, py = target_card.winfo_pointerxy()
+                    wx = target_card.winfo_rootx()
+                    wy = target_card.winfo_rooty()
+                    ww = target_card.winfo_width()
+                    wh = target_card.winfo_height()
+
+                    if not (wx <= px <= wx + ww and wy <= py <= wy + wh):
+                        target_card.configure(fg_color="#1e293b")
+                except Exception:
+                    target_card.configure(fg_color="#1e293b")
+
+            lbl_action.bind("<Button-1>", lambda e, it=item_data: handle_click(it))
+            card.bind("<Enter>", on_enter)
+            card.bind("<Leave>", on_leave)
 
     def on_drop(self, event):
-        # Correção robusta para caminhos com espaços no Windows
-        data = event.data
-        if data.startswith('{') and data.endswith('}'):
-            paths = [data[1:-1]]
-        else:
-            files = re.findall(r'\{([^}]+)\}|(\S+)', data)
-            paths = [f[0] or f[1] for f in files]
-            
-        if paths:
-            self.parent_app.log(f"Processando {len(paths)} arquivos...")
-            self.upload_callback(paths)
+        files = re.findall(r'\{([^}]+)\}|(\S+)', event.data)
+        paths = [f[0] or f[1] for f in files]
+        self.upload_callback(paths)
         self.collapse()
 
-class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de um Root oculto
-    def __init__(self, master):
-        super().__init__(master)
-        self.title("ClipSync")
-        self.geometry("450x600")
-        self.attributes("-toolwindow", 1) # Não aparece na barra de tarefas
-        self.withdraw() # Inicia oculta
+
+class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
+    def __init__(self):
+        super().__init__()
+        self.TkdndVersion = TkinterDnD._require(self)
+        self.title("ClipSync Desktop")
+        self.geometry("520x680")
         
+        # Oculta da barra de tarefas no início
+        self.hide_to_tray()
+
         self.last_clip = ""
         self.last_remote_id = ""
         self.history_cache = []
@@ -771,42 +875,200 @@ class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de 
         self._start_loops()
         self._setup_tray()
         
-        # No fechamento, apenas oculta
-        self.protocol("WM_DELETE_WINDOW", self.withdraw)
+        # Redireciona o fechamento para a bandeja
+        self.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
         self.drop_zone = MagicBarOverlay(self, self.upload_files)
 
-    def show_window(self):
-        self.deiconify()
-        self.attributes("-topmost", True)
+    def deiconify(self):
+        """Exibe a janela principal ao clicar no menu da bandeja."""
+        self.overrideredirect(False)
+        self.attributes("-toolwindow", 1)
+        super().deiconify()
         self.focus_force()
+        self.lift()
+
+    def hide_to_tray(self):
+        """Oculta e limpa a janela da barra de tarefas do Windows."""
+        self.overrideredirect(True)
+        super().withdraw()
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
+        
         self.header = ctk.CTkFrame(self, fg_color="transparent")
-        self.header.pack(fill="x", padx=30, pady=30)
-        ctk.CTkLabel(self.header, text="ClipSync", font=("Segoe UI", 28, "bold"), text_color="#3b82f6").pack(anchor="w")
-        self.status = ctk.CTkLabel(self.header, text="Conectando...", font=("Segoe UI", 12), text_color="#64748b")
+        self.header.pack(fill="x", padx=20, pady=(20, 10))
+        ctk.CTkLabel(self.header, text="ClipSync Desktop", font=("Segoe UI", 24, "bold"), text_color="#3b82f6").pack(anchor="w")
+        self.status = ctk.CTkLabel(self.header, text="Conectando...", font=("Segoe UI", 11), text_color="#64748b")
         self.status.pack(anchor="w")
 
-        self.log_box = ctk.CTkTextbox(self, height=300, fg_color="#020617", border_color="#1e293b", border_width=1)
-        self.log_box.pack(fill="both", padx=30, pady=10)
+        # Painel de IP
+        self.config_frame = ctk.CTkFrame(self, fg_color="#0f172a", corner_radius=12, border_width=1, border_color="#1e293b")
+        self.config_frame.pack(fill="x", padx=20, pady=5)
+
+        ctk.CTkLabel(self.config_frame, text="Servidor (IP / URL):", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        
+        ip_input_layout = ctk.CTkFrame(self.config_frame, fg_color="transparent")
+        ip_input_layout.pack(fill="x", padx=12, pady=(0, 8))
+
+        self.ip_entry = ctk.CTkEntry(ip_input_layout, placeholder_text="http://192.168.1.10:3000", font=("Segoe UI", 11))
+        self.ip_entry.insert(0, self.server_url)
+        self.ip_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self.btn_save_ip = ctk.CTkButton(ip_input_layout, text="Salvar IP", width=80, fg_color="#3b82f6", hover_color="#2563eb", command=self.update_server_url)
+        self.btn_save_ip.pack(side="right")
+
+        # Painel CRUD
+        self.crud_frame = ctk.CTkFrame(self, fg_color="#0f172a", corner_radius=12, border_width=1, border_color="#1e293b")
+        self.crud_frame.pack(fill="x", padx=20, pady=5)
+
+        ctk.CTkLabel(self.crud_frame, text="➕ Novo Card Manual", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        
+        self.card_title_entry = ctk.CTkEntry(self.crud_frame, placeholder_text="Título do Card (ex: Minha Nota)", font=("Segoe UI", 11))
+        self.card_title_entry.pack(fill="x", padx=12, pady=3)
+
+        self.card_content_entry = ctk.CTkEntry(self.crud_frame, placeholder_text="Conteúdo do texto ou URL", font=("Segoe UI", 11))
+        self.card_content_entry.pack(fill="x", padx=12, pady=3)
+
+        self.btn_create_card = ctk.CTkButton(self.crud_frame, text="Criar Card na Nuvem", fg_color="#22c55e", hover_color="#16a34a", command=self.create_card_manual)
+        self.btn_create_card.pack(fill="x", padx=12, pady=(5, 8))
+
+        # Terminal Log
+        ctk.CTkLabel(self, text="Atividades do Sistema:", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=20, pady=(8, 2))
+        self.log_box = ctk.CTkTextbox(self, height=180, fg_color="#020617", border_color="#1e293b", border_width=1)
+        self.log_box.pack(fill="both", expand=True, padx=20, pady=(0, 15))
         self.log_box.configure(state="disabled")
 
-    def log(self, msg, type="info"):
+    def log(self, msg, type_msg="info"):
         self.log_box.configure(state="normal")
         self.log_box.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\\n")
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
 
+    def update_server_url(self):
+        new_url = self.ip_entry.get().strip()
+        if not new_url:
+            messagebox.showwarning("Aviso", "O endereço do servidor não pode estar vazio.")
+            return
+
+        if not new_url.startswith("http://") and not new_url.startswith("https://"):
+            new_url = "http://" + new_url
+
+        self.server_url = new_url
+        config["serverUrl"] = new_url
+        save_config(config)
+
+        self.log(f"Servidor atualizado para: {self.server_url}")
+        self._register_device()
+        messagebox.showinfo("ClipSync", "Endereço do servidor salvo com sucesso!")
+
+    def create_card_manual(self):
+        title = self.card_title_entry.get().strip()
+        content = self.card_content_entry.get().strip()
+
+        if not title or not content:
+            messagebox.showwarning("Aviso", "Preencha o título e o conteúdo para criar um card.")
+            return
+
+        payload = {
+            "title": title,
+            "content": content,
+            "deviceId": self.device_id,
+            "deviceName": self.device_name,
+            "type": "text"
+        }
+
+        def worker():
+            try:
+                res = requests.post(f"{self.server_url}/api/clipboard", json=payload, timeout=5)
+                if res.status_code < 300:
+                    self.log(f"✅ Card '{title}' criado na nuvem!")
+                    self.card_title_entry.delete(0, 'end')
+                    self.card_content_entry.delete(0, 'end')
+                else:
+                    self.log(f"❌ Erro ({res.status_code}) ao criar card.")
+            except Exception as e:
+                self.log(f"❌ Erro de conexão ao criar card: {e}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def open_edit_dialog(self, item_data):
+        edit_win = ctk.CTkToplevel(self)
+        edit_win.title("Editar Card")
+        edit_win.geometry("400x250")
+        edit_win.transient(self)
+        edit_win.attributes("-topmost", True)
+        edit_win.attributes("-toolwindow", True)
+
+        ctk.CTkLabel(edit_win, text="Editar Card", font=("Segoe UI", 14, "bold")).pack(pady=(15, 5))
+
+        title_entry = ctk.CTkEntry(edit_win, width=340)
+        title_entry.insert(0, item_data.get("title", ""))
+        title_entry.pack(pady=5)
+
+        content_entry = ctk.CTkEntry(edit_win, width=340)
+        content_entry.insert(0, item_data.get("content", ""))
+        content_entry.pack(pady=5)
+
+        def save_edit():
+            new_title = title_entry.get().strip()
+            new_content = content_entry.get().strip()
+            item_id = item_data.get("id")
+
+            if not new_title or not new_content:
+                messagebox.showwarning("Aviso", "Preencha os campos para salvar.")
+                return
+
+            def worker():
+                try:
+                    # Usando PATCH para atualizar
+                    res = requests.patch(f"{self.server_url}/api/clipboard/{item_id}", json={
+                        "title": new_title,
+                        "content": new_content
+                    }, timeout=5)
+                    if res.status_code < 300:
+                        self.log(f"✏️ Card '{new_title}' atualizado!")
+                        edit_win.destroy()
+                    else:
+                        self.log(f"❌ Erro ao editar card.")
+                except Exception as e:
+                    self.log(f"❌ Erro ao editar card: {e}")
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        ctk.CTkButton(edit_win, text="Salvar Alterações", fg_color="#3b82f6", command=save_edit).pack(pady=15)
+
+    def delete_item(self, item_data):
+        item_id = item_data.get("id")
+        title = item_data.get("title", "este item")
+
+        if not messagebox.askyesno("Confirmar Exclusão", f"Deseja realmente remover '{title}'?"):
+            return
+
+        def worker():
+            try:
+                res = requests.delete(f"{self.server_url}/api/clipboard/{item_id}", timeout=5)
+                if res.status_code < 300:
+                    self.log(f"🗑️ Card '{title}' removido da nuvem!")
+            except Exception as e:
+                self.log(f"❌ Erro ao remover card: {e}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _open_web_panel(self):
+        webbrowser.open(self.server_url)
+
     def _register_device(self):
-        try:
-            requests.post(f"{self.server_url}/api/devices", json={
-                "id": self.device_id, "name": self.device_name, "type": "desktop", "os": "Windows/Python"
-            }, timeout=5)
-            self.status.configure(text=f"Ativo: {self.server_url}", text_color="#22c55e")
-            self.log("Dispositivo pareado com sucesso.")
-        except:
-            self.status.configure(text="Erro de conexão", text_color="#ef4444")
+        def worker():
+            try:
+                requests.post(f"{self.server_url}/api/devices", json={
+                    "id": self.device_id, "name": self.device_name, "type": "desktop", "os": "Windows/Python"
+                }, timeout=5)
+                self.status.configure(text=f"Ativo: {self.server_url}", text_color="#22c55e")
+                self.log("Dispositivo pareado com sucesso.")
+            except Exception:
+                self.status.configure(text="Erro de conexão", text_color="#ef4444")
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def upload_files(self, paths):
         for p in paths:
@@ -817,11 +1079,16 @@ class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de 
             name = os.path.basename(path)
             self.log(f"Enviando {name}...")
             with open(path, "rb") as f:
-                res = requests.post(f"{self.server_url}/api/upload", 
-                                    files={"file": f}, 
-                                    data={"deviceId": self.device_id, "deviceName": self.device_name}, timeout=20)
-            if res.status_code < 300: self.log(f"✅ {name} enviado!", "success")
-        except: self.log(f"❌ Erro ao enviar {name}", "error")
+                res = requests.post(
+                    f"{self.server_url}/api/upload", 
+                    files={"file": f}, 
+                    data={"deviceId": self.device_id, "deviceName": self.device_name}, 
+                    timeout=20
+                )
+            if res.status_code < 300:
+                self.log(f"✅ {name} enviado!", "success")
+        except Exception:
+            self.log(f"❌ Erro ao enviar {name}", "error")
 
     def _start_loops(self):
         def clip_monitor():
@@ -834,7 +1101,8 @@ class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de 
                         requests.post(f"{self.server_url}/api/clipboard", json={
                             "content": curr, "deviceId": self.device_id, "deviceName": self.device_name, "type": "text"
                         }, timeout=5)
-                except: pass
+                except Exception:
+                    pass
                 time.sleep(1)
 
         def sync_receiver():
@@ -842,51 +1110,38 @@ class ClipSyncApp(ctk.CTkToplevel): # Agora é Toplevel para poder ser filha de 
                 try:
                     res = requests.get(f"{self.server_url}/api/clipboard", timeout=5).json()
                     if res.get("items"):
-                        # Atualiza o cache para a Magic Bar
                         self.history_cache = res["items"]
-                        
-                        item = res["items"][0]
-                        if item["id"] != self.last_remote_id and item["deviceId"] != self.device_id:
-                            self.last_remote_id = item["id"]
-                            self.last_clip = item["content"].strip()
-                            pyperclip.copy(item["content"])
-                            self.log(f"📥 Recebido de {item['deviceName']}", "success")
-                except: pass
+                        item_data = res["items"][0]
+                        if item_data["id"] != self.last_remote_id and item_data["deviceId"] != self.device_id:
+                            self.last_remote_id = item_data["id"]
+                            self.last_clip = item_data["content"].strip()
+                            pyperclip.copy(item_data["content"])
+                            self.log(f"📥 Recebido de {item_data['deviceName']}", "success")
+                except Exception:
+                    pass
                 time.sleep(2)
 
         threading.Thread(target=clip_monitor, daemon=True).start()
         threading.Thread(target=sync_receiver, daemon=True).start()
 
     def _setup_tray(self):
-        try:
-            from PIL import Image, ImageDraw
-            img = Image.new('RGB', (64, 64), color=(59, 130, 246))
-            d = ImageDraw.Draw(img)
-            d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
-            
-            menu = pystray.Menu(
-                pystray.MenuItem("Abrir ClipSync", self.show_window),
-                pystray.MenuItem("Sincronizar Agora", lambda: self.log("Sincronização manual...")),
-                pystray.Menu.Separator(),
-                pystray.MenuItem("Sair", self._quit_app)
-            )
-            self.tray = pystray.Icon("ClipSync", img, "ClipSync", menu)
-            threading.Thread(target=self.tray.run, daemon=True).start()
-        except Exception as e:
-            print(f"Erro Tray: {e}")
+        img = Image.new('RGB', (64, 64), color=(59, 130, 246))
+        d = ImageDraw.Draw(img)
+        d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
+        
+        menu = pystray.Menu(
+            item('Abrir App Desktop', self.deiconify),
+            item('🌐 Abrir Painel Web', self._open_web_panel),
+            pystray.Menu.SEPARATOR,
+            item('Sair', self.quit)
+        )
+        self.tray = pystray.Icon("ClipSync", img, "ClipSync", menu)
+        threading.Thread(target=self.tray.run, daemon=True).start()
 
-    def _quit_app(self):
-        self.is_active = False
-        if hasattr(self, 'tray'):
-            self.tray.stop()
-        self.master.destroy()
 
 if __name__ == "__main__":
-    import tkinter as tk
-    root = tk.Tk()
-    root.withdraw()
-    app = ClipSyncApp(root)
-    root.mainloop()
+    app = ClipSyncApp()
+    app.mainloop()
 `;
 
   // PowerShell One-Liner Installer script
