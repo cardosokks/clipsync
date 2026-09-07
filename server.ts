@@ -318,7 +318,13 @@ class ClipSyncClient:
         while self.is_running:
             try:
                 curr = pyperclip.paste()
-                if curr and curr != self.last_clip:
+                if curr and curr.strip() and curr != self.last_clip:
+                    # Pequeno delay para garantir que o usuário terminou de copiar
+                    time.sleep(0.1)
+                    curr = pyperclip.paste()
+                    
+                    if curr == self.last_clip: continue
+                    
                     self.last_clip = curr
                     requests.post(f"{self.server_url}/api/clipboard", json={
                         "content": curr,
@@ -329,7 +335,7 @@ class ClipSyncClient:
                     }, timeout=5)
                     self.show_alert("Copiado para Nuvem", "#38bdf8")
             except: pass
-            time.sleep(1.5)
+            time.sleep(1.0)
 
     def server_loop(self):
         while self.is_running:
@@ -470,6 +476,18 @@ Write-Host "SUCESSO! ClipSync Python Ativo." -ForegroundColor Green
 
     if (!content && !fileName) {
       return res.status(400).json({ error: 'Conteúdo ou arquivo é obrigatório.' });
+    }
+
+    // --- DEDUPLICAÇÃO ---
+    // Se for texto e já existir um item com o mesmo conteúdo nos últimos 10 itens, não cria de novo.
+    if (type === 'text' && content) {
+      const existingItem = clipboardStore.slice(0, 10).find(i => i.content === content);
+      if (existingItem) {
+        // Apenas move para o topo se já existir
+        clipboardStore = [existingItem, ...clipboardStore.filter(i => i.id !== existingItem.id)];
+        broadcastSSE('clipboard_updated', existingItem);
+        return res.json({ item: existingItem, isDuplicate: true });
+      }
     }
 
     const newItem: ClipboardItem = {
@@ -797,13 +815,18 @@ $Timer.Add_Tick({
         if ([System.Windows.Forms.Clipboard]::ContainsText()) {
             $CurrentText = [System.Windows.Forms.Clipboard]::GetText()
             if ($CurrentText -and $CurrentText -ne $LastClipboardText -and $CurrentText.Trim().Length -gt 0) {
-                $LastClipboardText = $CurrentText
-                Write-Log "Enviando: $($CurrentText.Substring(0, [Math]::Min(20, $CurrentText.Length)))"
+                # Evita falso positivo em mudanças rápidas
+                Start-Sleep -Milliseconds 100
+                $VerifiedText = [System.Windows.Forms.Clipboard]::GetText()
+                if ($VerifiedText -ne $CurrentText -or $VerifiedText -eq $LastClipboardText) { return }
+
+                $LastClipboardText = $VerifiedText
+                Write-Log "Enviando: $($VerifiedText.Substring(0, [Math]::Min(20, $VerifiedText.Length)))"
                 
-                $Type = if ($CurrentText -match '^https?://') { 'url' } elseif ($CurrentText -match '[\{\}\[\]\(\)=>:;]') { 'code' } else { 'text' }
+                $Type = if ($VerifiedText -match '^https?://') { 'url' } elseif ($VerifiedText -match '[\{\}\[\]\(\)=>:;]') { 'code' } else { 'text' }
                 $PostPayload = @{
-                    content = $CurrentText
-                    title = if ($CurrentText.Length -gt 40) { $CurrentText.Substring(0, 40) + "..." } else { $CurrentText }
+                    content = $VerifiedText
+                    title = if ($VerifiedText.Length -gt 40) { $VerifiedText.Substring(0, 40) + "..." } else { $VerifiedText }
                     type = $Type
                     deviceId = $DeviceId
                     deviceName = $DeviceName
