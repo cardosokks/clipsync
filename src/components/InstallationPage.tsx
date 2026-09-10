@@ -1,13 +1,14 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Download, Monitor, Terminal, Shield, Zap, Sparkles, ChevronLeft, ExternalLink, Cpu, HardDrive } from 'lucide-react';
+import { Download, Monitor, Terminal, Shield, Zap, Sparkles, ChevronLeft, ExternalLink, Cpu, HardDrive, Globe } from 'lucide-react';
 
 interface InstallationPageProps {
   onBack: () => void;
   serverUrl: string;
+  onOpenSettings?: () => void;
 }
 
-export const InstallationPage: React.FC<InstallationPageProps> = ({ onBack, serverUrl }) => {
+export const InstallationPage: React.FC<InstallationPageProps> = ({ onBack, serverUrl, onOpenSettings }) => {
   return (
     <div className="min-h-screen bg-transparent text-white p-6 md:p-12 selection:bg-blue-500/30">
       <div className="max-w-4xl mx-auto space-y-12">
@@ -23,8 +24,19 @@ export const InstallationPage: React.FC<InstallationPageProps> = ({ onBack, serv
             <span className="font-bold text-sm">Voltar ao Dashboard</span>
           </button>
 
-          <div className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-bold text-blue-400 tracking-widest uppercase">
-            Setup Guide v1.6.1
+          <div className="flex items-center gap-3">
+            {onOpenSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-xs font-bold text-indigo-300 transition-colors"
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>Configurações & ngrok</span>
+              </button>
+            )}
+            <div className="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-bold text-blue-400 tracking-widest uppercase">
+              Setup Guide v2.0
+            </div>
           </div>
         </div>
 

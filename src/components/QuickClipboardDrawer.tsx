@@ -22,6 +22,7 @@ import {
   ClipboardPaste,
   Eye,
   RefreshCw,
+  Globe,
 } from 'lucide-react';
 import { ClipboardItem, FilterCategory, Device } from '../types';
 import { copyToClipboard, downloadItemContent, formatBytes, formatRelativeTime } from '../utils/formatters';
@@ -40,6 +41,7 @@ interface QuickClipboardDrawerProps {
   activeDevice: Device;
   isSyncing: boolean;
   onOpenWindowsClientModal?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const QuickClipboardDrawer: React.FC<QuickClipboardDrawerProps> = ({
@@ -55,6 +57,7 @@ export const QuickClipboardDrawer: React.FC<QuickClipboardDrawerProps> = ({
   activeDevice,
   isSyncing,
   onOpenWindowsClientModal,
+  onOpenSettings,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<FilterCategory>('all');
@@ -499,6 +502,19 @@ export const QuickClipboardDrawer: React.FC<QuickClipboardDrawerProps> = ({
               </div>
 
               <div className="flex items-center gap-3">
+                {onOpenSettings && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onOpenSettings();
+                    }}
+                    className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+                    title="Configurações & Acesso Remoto (ngrok)"
+                  >
+                    <Globe className="w-3 h-3" />
+                    <span>ngrok</span>
+                  </button>
+                )}
                 {onOpenWindowsClientModal && (
                   <button
                     onClick={onOpenWindowsClientModal}

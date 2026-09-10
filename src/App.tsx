@@ -8,6 +8,7 @@ import { WindowsClientModal } from './components/WindowsClientModal';
 import { MainDashboard } from './components/MainDashboard';
 import { ManualEntryModal } from './components/ManualEntryModal';
 import { InstallationPage } from './components/InstallationPage';
+import { SettingsPage } from './components/SettingsPage';
 import { sounds } from './utils/sound';
 import { detectContentType, readFileAsDataUrl } from './utils/formatters';
 
@@ -15,7 +16,7 @@ export default function App() {
   const [items, setItems] = useState<ClipboardItem[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [activeDeviceId, setActiveDeviceId] = useState<string>('dev-current');
-  const [view, setView] = useState<'dashboard' | 'install'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'install' | 'settings'>('dashboard');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [previewItem, setPreviewItem] = useState<ClipboardItem | null>(null);
   const [isDeviceManagerOpen, setIsDeviceManagerOpen] = useState(false);
@@ -466,11 +467,18 @@ export default function App() {
           isSyncing={isSyncing}
           onClearUnpinned={handleClearUnpinned}
           onOpenWindowsClient={() => setView('install')}
+          onOpenSettings={() => setView('settings')}
         />
-      ) : (
+      ) : view === 'install' ? (
         <InstallationPage 
           onBack={() => setView('dashboard')} 
           serverUrl={window.location.origin} 
+          onOpenSettings={() => setView('settings')}
+        />
+      ) : (
+        <SettingsPage
+          onBack={() => setView('dashboard')}
+          onNavigateInstall={() => setView('install')}
         />
       )}
 
@@ -488,6 +496,7 @@ export default function App() {
         activeDevice={currentDevice}
         isSyncing={isSyncing}
         onOpenWindowsClientModal={() => setView('install')}
+        onOpenSettings={() => setView('settings')}
       />
 
       {/* 4. Full Preview and Edit Modal */}

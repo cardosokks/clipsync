@@ -50,3 +50,13 @@ export interface HotspotSettings {
   soundEffects: boolean;
   hapticFeedback: boolean;
 }
+
+export interface ServerSettings {
+  publicUrl: string;
+  detectedUrl: string;
+  customPublicUrl: string | null;
+  port: number;
+  isNgrok: boolean;
+  connectedClients: number;
+  activeDevices: number;
+}

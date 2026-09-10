@@ -48,6 +48,7 @@ interface MainDashboardProps {
   isSyncing: boolean;
   onClearUnpinned: () => void;
   onOpenWindowsClient?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({
@@ -64,6 +65,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   isSyncing,
   onClearUnpinned,
   onOpenWindowsClient,
+  onOpenSettings,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<FilterCategory>('all');
@@ -174,6 +176,18 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
 
         {/* Center/Right Nav buttons */}
         <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* Settings & ngrok Page Link */}
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-all backdrop-blur-md active:scale-95"
+              title="Configurações & Acesso Remoto com ngrok"
+            >
+              <Globe className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="font-bold hidden md:inline">Configurações (ngrok)</span>
+            </button>
+          )}
+
           {/* Installation Page Link */}
           <button
             onClick={onOpenWindowsClient}

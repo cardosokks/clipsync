@@ -63,17 +63,88 @@ function broadcastSSE(type: string, data: unknown) {
   }
 }
 
+let customPublicUrl: string | null = process.env.PUBLIC_URL || null;
+
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 10500;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // Global CORS and Header normalization (crucial for ngrok tunnels and remote devices)
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, ngrok-skip-browser-warning');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   app.use(express.json({ limit: '50mb' }));
 
+  // Helper to dynamically resolve the external public URL (prioritizes user-configured ngrok tunnel URL)
+  function resolveServerUrl(req: Request): string {
+    if (customPublicUrl && customPublicUrl.trim()) {
+      return customPublicUrl.trim().replace(/\/+$/, '');
+    }
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.get('host') || `localhost:${PORT}`;
+    return `${protocol}://${host}`.replace(/\/+$/, '');
+  }
+
   // --- API Endpoints ---
+
+  // Settings Endpoints for Remote Access & ngrok
+  app.get('/api/settings', (req: Request, res: Response) => {
+    const detectedUrl = `${req.headers['x-forwarded-proto'] || req.protocol || 'http'}://${req.get('host') || `localhost:${PORT}`}`.replace(/\/+$/, '');
+    const publicUrl = resolveServerUrl(req);
+    res.json({
+      publicUrl,
+      detectedUrl,
+      customPublicUrl,
+      port: PORT,
+      isNgrok: publicUrl.toLowerCase().includes('ngrok'),
+      connectedClients: sseClients.size,
+      activeDevices: registeredDevices.length,
+    });
+  });
+
+  app.post('/api/settings', (req: Request, res: Response) => {
+    const { customUrl } = req.body;
+    if (customUrl === undefined || customUrl === null || String(customUrl).trim() === '') {
+      customPublicUrl = null;
+    } else {
+      let cleanUrl = String(customUrl).trim();
+      if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+        cleanUrl = 'https://' + cleanUrl;
+      }
+      customPublicUrl = cleanUrl.replace(/\/+$/, '');
+    }
+
+    const detectedUrl = `${req.headers['x-forwarded-proto'] || req.protocol || 'http'}://${req.get('host') || `localhost:${PORT}`}`.replace(/\/+$/, '');
+    const publicUrl = resolveServerUrl(req);
+    const settingsData = {
+      publicUrl,
+      detectedUrl,
+      customPublicUrl,
+      port: PORT,
+      isNgrok: publicUrl.toLowerCase().includes('ngrok'),
+      connectedClients: sseClients.size,
+      activeDevices: registeredDevices.length,
+    };
+
+    broadcastSSE('settings_updated', settingsData);
+    res.json({ success: true, settings: settingsData });
+  });
 
   // Health check
   app.get('/api/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', timestamp: Date.now(), connectedClients: sseClients.size });
+    res.json({ 
+      status: 'ok', 
+      timestamp: Date.now(), 
+      connectedClients: sseClients.size,
+      serverUrl: resolveServerUrl(_req)
+    });
   });
 
   // Server-Sent Events (SSE) for automatic real-time sync across tabs and devices
@@ -346,14 +417,13 @@ async function startServer() {
 
   // Get current server connection config & status for the client
   app.get('/api/client/config', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
+    const serverUrl = resolveServerUrl(req);
 
     res.json({
       serverUrl,
-      version: '1.4.0',
+      version: '2.0.0',
       status: 'online',
+      isNgrok: serverUrl.toLowerCase().includes('ngrok'),
       activeDevices: registeredDevices.length,
       connectedSSEClients: sseClients.size,
       osSupported: 'Windows 10, Windows 11 (x64 / ARM64)',
@@ -1155,9 +1225,7 @@ Write-Host "pip install requests pyperclip customtkinter Pillow pystray tkinterd
 `;
 
   app.get('/api/client/clipsync.py', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
+    const serverUrl = resolveServerUrl(req);
     res.setHeader('Content-Type', 'text/x-python; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="clipsync.py"');
     res.send(generatePythonClient(serverUrl));
@@ -1165,9 +1233,7 @@ Write-Host "pip install requests pyperclip customtkinter Pillow pystray tkinterd
 
   // PowerShell One-Liner Installer route
   app.get('/api/client/install.ps1', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
+    const serverUrl = resolveServerUrl(req);
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(generateInstallerScript(serverUrl));
@@ -1175,9 +1241,7 @@ Write-Host "pip install requests pyperclip customtkinter Pillow pystray tkinterd
 
   // Standard 1-Click .CMD Installer Download
   app.get('/api/download/ClipSync-QuickInstaller.cmd', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
+    const serverUrl = resolveServerUrl(req);
 
     const cmdContent = `@echo off
 setlocal enabledelayedexpansion
@@ -1202,6 +1266,90 @@ pause >nul
     res.setHeader('Content-Type', 'application/x-bat; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="ClipSync-QuickInstaller.cmd"');
     res.send(cmdContent);
+  });
+
+  // Helper script download to start ClipSync + ngrok together (Windows .BAT)
+  app.get('/api/download/start-with-ngrok.bat', (_req: Request, res: Response) => {
+    const batScript = `@echo off
+title ClipSync + ngrok Tunnel Launcher
+color 0b
+
+echo =========================================================================
+echo               CLIPSYNC - INICIALIZADOR COM TUNEL NGROK
+echo =========================================================================
+echo.
+echo [1/3] Verificando dependencias...
+where ngrok >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    echo [AVISO] O 'ngrok' nao foi encontrado no PATH do Windows!
+    echo Instale rapidamente executando: winget install ngrok
+    echo Ou baixe em: https://ngrok.com/download
+    echo.
+    echo Pressione qualquer tecla para continuar mesmo assim...
+    pause
+)
+
+echo [2/3] Iniciando o servidor ClipSync na porta ${PORT}...
+start "ClipSync Server (Node.js)" cmd /k "npm run dev"
+
+echo Aguardando 4 segundos para o servidor inicializar...
+timeout /t 4 /nobreak >nul
+
+echo [3/3] Iniciando o tunel ngrok para a porta ${PORT}...
+echo Dica: Se voce possui um dominio fixo gratuito, use: ngrok http --url=SEU-DOMINIO.ngrok-free.app ${PORT}
+start "ngrok Tunnel" cmd /k "ngrok http ${PORT}"
+
+echo.
+echo =========================================================================
+echo   SUCESSO! O ClipSync e o ngrok estao rodando.
+echo   1. Na janela do ngrok, copie a URL 'Forwarding' (ex: https://xxxx.ngrok-free.app)
+echo   2. Acesse o ClipSync no navegador, va na pagina de 'Configuracoes'
+echo   3. Cole a URL do ngrok para atualizar todos os QR codes e clientes!
+echo =========================================================================
+echo.
+pause
+`;
+    res.setHeader('Content-Type', 'application/x-bat; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="iniciar-com-ngrok.bat"');
+    res.send(batScript);
+  });
+
+  // Helper script download to start ClipSync + ngrok together (Linux / macOS .SH)
+  app.get('/api/download/start-with-ngrok.sh', (_req: Request, res: Response) => {
+    const shScript = `#!/usr/bin/env bash
+# =========================================================================
+#  ClipSync - Inicializador com Túnel ngrok (Linux / macOS)
+# =========================================================================
+
+PORT=${PORT}
+
+echo "========================================================================="
+echo "             CLIPSYNC - INICIALIZADOR COM TÚNEL NGROK"
+echo "========================================================================="
+
+if ! command -v ngrok &> /dev/null; then
+    echo "[AVISO] 'ngrok' não foi encontrado no PATH!"
+    echo "Instale via: brew install ngrok  OU  snap install ngrok"
+    echo "Ou acesse: https://ngrok.com/download"
+    echo ""
+fi
+
+echo "[1/2] Iniciando o servidor Node.js ClipSync na porta $PORT..."
+npm run dev &
+SERVER_PID=$!
+
+sleep 3
+
+echo "[2/2] Iniciando o túnel ngrok na porta $PORT..."
+echo "Copie a URL de Forwarding gerada e cole nas Configurações do ClipSync!"
+echo "Pressione Ctrl+C para encerrar ambos os serviços."
+
+trap "kill $SERVER_PID 2>/dev/null; exit" INT TERM EXIT
+ngrok http $PORT
+`;
+    res.setHeader('Content-Type', 'text/x-shellscript; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="iniciar-com-ngrok.sh"');
+    res.send(shScript);
   });
 
   // --- NOVO: DOCKER COMPOSE CONFIG (PRODUÇÃO / EASYPANEL) ---
@@ -1440,9 +1588,7 @@ if __name__ == "__main__":
   });
 
   app.get('/api/download/python-installer-gui.py', (req: Request, res: Response) => {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || 'localhost:10500';
-    const serverUrl = `${protocol}://${host}`;
+    const serverUrl = resolveServerUrl(req);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="ClipSync-Installer.py"');
     res.send(generatePythonGuiInstaller(serverUrl));
@@ -1451,9 +1597,7 @@ if __name__ == "__main__":
   // Complete ZIP Package Download with installer, client and documentation
   app.get('/api/download/windows-installer.zip', async (req: Request, res: Response) => {
     try {
-      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-      const host = req.get('host') || 'localhost:10500';
-      const serverUrl = `${protocol}://${host}`;
+      const serverUrl = resolveServerUrl(req);
 
       const zip = new JSZip();
 
