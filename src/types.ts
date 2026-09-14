@@ -59,4 +59,10 @@ export interface ServerSettings {
   isNgrok: boolean;
   connectedClients: number;
   activeDevices: number;
+  ngrokActive: boolean;
+  ngrokUrl: string | null;
+  hasAuthToken: boolean;
+  authTokenMasked: string | null;
+  domain: string | null;
+  lastError: string | null;
 }

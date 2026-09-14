@@ -3,6 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import JSZip from 'jszip';
 import multer from 'multer';
+import ngrok from '@ngrok/ngrok';
 
 const upload = multer({ 
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
@@ -64,6 +65,12 @@ function broadcastSSE(type: string, data: unknown) {
 }
 
 let customPublicUrl: string | null = process.env.PUBLIC_URL || null;
+let ngrokAuthToken: string = process.env.NGROK_AUTHTOKEN || '';
+let ngrokDomain: string = process.env.NGROK_DOMAIN || '';
+let ngrokListener: any = null;
+let ngrokUrl: string | null = null;
+let ngrokLastError: string | null = null;
+let isNgrokStarting: boolean = false;
 
 async function startServer() {
   const app = express();
@@ -82,59 +89,195 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
-  // Helper to dynamically resolve the external public URL (prioritizes user-configured ngrok tunnel URL)
-  function resolveServerUrl(req: Request): string {
+  // Helper to dynamically resolve the external public URL (prioritizes active ngrok tunnel URL or customPublicUrl)
+  function resolveServerUrl(req?: Request): string {
+    if (ngrokUrl && ngrokUrl.trim()) {
+      return ngrokUrl.trim().replace(/\/+$/, '');
+    }
     if (customPublicUrl && customPublicUrl.trim()) {
       return customPublicUrl.trim().replace(/\/+$/, '');
     }
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.get('host') || `localhost:${PORT}`;
-    return `${protocol}://${host}`.replace(/\/+$/, '');
+    if (req) {
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.get('host') || `localhost:${PORT}`;
+      return `${protocol}://${host}`.replace(/\/+$/, '');
+    }
+    return `http://localhost:${PORT}`;
+  }
+
+  function getSettingsPayload(req?: Request) {
+    const detectedUrl = req
+      ? `${req.headers['x-forwarded-proto'] || req.protocol || 'http'}://${req.get('host') || `localhost:${PORT}`}`.replace(/\/+$/, '')
+      : `http://localhost:${PORT}`;
+    const publicUrl = resolveServerUrl(req);
+    return {
+      publicUrl,
+      detectedUrl,
+      customPublicUrl,
+      port: PORT,
+      isNgrok: Boolean(ngrokUrl || publicUrl.toLowerCase().includes('ngrok')),
+      connectedClients: sseClients.size,
+      activeDevices: registeredDevices.length,
+      ngrokActive: Boolean(ngrokListener && ngrokUrl),
+      ngrokUrl: ngrokUrl,
+      hasAuthToken: Boolean(ngrokAuthToken && ngrokAuthToken.trim().length > 0),
+      authTokenMasked: ngrokAuthToken ? (ngrokAuthToken.length > 8 ? `${ngrokAuthToken.substring(0, 4)}...${ngrokAuthToken.substring(ngrokAuthToken.length - 4)}` : '••••••••') : null,
+      domain: ngrokDomain || null,
+      lastError: ngrokLastError,
+    };
   }
 
   // --- API Endpoints ---
 
   // Settings Endpoints for Remote Access & ngrok
   app.get('/api/settings', (req: Request, res: Response) => {
-    const detectedUrl = `${req.headers['x-forwarded-proto'] || req.protocol || 'http'}://${req.get('host') || `localhost:${PORT}`}`.replace(/\/+$/, '');
-    const publicUrl = resolveServerUrl(req);
-    res.json({
-      publicUrl,
-      detectedUrl,
-      customPublicUrl,
-      port: PORT,
-      isNgrok: publicUrl.toLowerCase().includes('ngrok'),
-      connectedClients: sseClients.size,
-      activeDevices: registeredDevices.length,
-    });
+    res.json(getSettingsPayload(req));
   });
 
   app.post('/api/settings', (req: Request, res: Response) => {
-    const { customUrl } = req.body;
-    if (customUrl === undefined || customUrl === null || String(customUrl).trim() === '') {
-      customPublicUrl = null;
-    } else {
-      let cleanUrl = String(customUrl).trim();
-      if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-        cleanUrl = 'https://' + cleanUrl;
-      }
-      customPublicUrl = cleanUrl.replace(/\/+$/, '');
+    const { customUrl, authToken, domain } = req.body;
+    
+    if (authToken !== undefined) {
+      ngrokAuthToken = String(authToken || '').trim();
     }
 
-    const detectedUrl = `${req.headers['x-forwarded-proto'] || req.protocol || 'http'}://${req.get('host') || `localhost:${PORT}`}`.replace(/\/+$/, '');
-    const publicUrl = resolveServerUrl(req);
-    const settingsData = {
-      publicUrl,
-      detectedUrl,
-      customPublicUrl,
-      port: PORT,
-      isNgrok: publicUrl.toLowerCase().includes('ngrok'),
-      connectedClients: sseClients.size,
-      activeDevices: registeredDevices.length,
-    };
+    if (domain !== undefined) {
+      ngrokDomain = String(domain || '').trim();
+    }
 
+    if (customUrl !== undefined) {
+      if (!customUrl || String(customUrl).trim() === '') {
+        customPublicUrl = null;
+      } else {
+        let cleanUrl = String(customUrl).trim();
+        if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+          cleanUrl = 'https://' + cleanUrl;
+        }
+        customPublicUrl = cleanUrl.replace(/\/+$/, '');
+      }
+    }
+
+    const settingsData = getSettingsPayload(req);
     broadcastSSE('settings_updated', settingsData);
     res.json({ success: true, settings: settingsData });
+  });
+
+  // Turn ON ngrok tunnel
+  app.post('/api/ngrok/start', async (req: Request, res: Response) => {
+    const { authToken, domain } = req.body || {};
+    
+    if (authToken && String(authToken).trim()) {
+      ngrokAuthToken = String(authToken).trim();
+    }
+    if (domain !== undefined) {
+      ngrokDomain = String(domain || '').trim();
+    }
+
+    if (!ngrokAuthToken || ngrokAuthToken.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'É necessário informar o Token de Autenticação do ngrok (Authtoken). Crie sua conta gratuita em ngrok.com.',
+        settings: getSettingsPayload(req)
+      });
+    }
+
+    if (ngrokListener && ngrokUrl) {
+      return res.json({
+        success: true,
+        message: 'O túnel ngrok já está ligado e ativo!',
+        url: ngrokUrl,
+        settings: getSettingsPayload(req)
+      });
+    }
+
+    if (isNgrokStarting) {
+      return res.status(409).json({
+        success: false,
+        error: 'O ngrok já está em processo de inicialização...',
+        settings: getSettingsPayload(req)
+      });
+    }
+
+    isNgrokStarting = true;
+    ngrokLastError = null;
+
+    try {
+      // Disconnect existing if any
+      if (ngrokListener) {
+        try {
+          await ngrokListener.close();
+        } catch {}
+        ngrokListener = null;
+      }
+
+      const forwardOptions: any = {
+        addr: PORT,
+        authtoken: ngrokAuthToken.trim(),
+      };
+
+      if (ngrokDomain && ngrokDomain.trim().length > 0) {
+        forwardOptions.domain = ngrokDomain.trim();
+      }
+
+      ngrokListener = await ngrok.forward(forwardOptions);
+      ngrokUrl = ngrokListener.url();
+      customPublicUrl = ngrokUrl;
+      ngrokLastError = null;
+
+      const settingsData = getSettingsPayload(req);
+      broadcastSSE('settings_updated', settingsData);
+
+      isNgrokStarting = false;
+      return res.json({
+        success: true,
+        message: 'Túnel ngrok ligado com sucesso!',
+        url: ngrokUrl,
+        settings: settingsData
+      });
+    } catch (err: any) {
+      isNgrokStarting = false;
+      ngrokListener = null;
+      ngrokUrl = null;
+      ngrokLastError = err.message || 'Falha ao iniciar o túnel ngrok. Verifique se o seu Authtoken está correto.';
+
+      return res.status(500).json({
+        success: false,
+        error: ngrokLastError,
+        settings: getSettingsPayload(req)
+      });
+    }
+  });
+
+  // Turn OFF ngrok tunnel
+  app.post('/api/ngrok/stop', async (req: Request, res: Response) => {
+    try {
+      if (ngrokListener) {
+        try {
+          await ngrokListener.close();
+        } catch {}
+        ngrokListener = null;
+      }
+      ngrokUrl = null;
+      if (customPublicUrl && customPublicUrl.toLowerCase().includes('ngrok')) {
+        customPublicUrl = null;
+      }
+      ngrokLastError = null;
+
+      const settingsData = getSettingsPayload(req);
+      broadcastSSE('settings_updated', settingsData);
+
+      return res.json({
+        success: true,
+        message: 'Túnel ngrok desligado com sucesso.',
+        settings: settingsData
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Erro ao desligar o ngrok.',
+        settings: getSettingsPayload(req)
+      });
+    }
   });
 
   // Health check
