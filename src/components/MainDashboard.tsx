@@ -30,7 +30,7 @@ import {
   CheckCircle2,
   Globe,
 } from 'lucide-react';
-import { ClipboardItem, Device, FilterCategory } from '../types';
+import { ClipboardItem, Device, FilterCategory, UserProfile } from '../types';
 import { copyToClipboard, downloadItemContent, formatBytes, formatRelativeTime } from '../utils/formatters';
 import { sounds } from '../utils/sound';
 
@@ -38,6 +38,10 @@ interface MainDashboardProps {
   items: ClipboardItem[];
   devices: Device[];
   activeDevice: Device;
+  currentUser?: UserProfile | null;
+  userCode?: string;
+  onOpenUserModal?: () => void;
+  onOpenGroupModal?: () => void;
   onOpenDrawer: () => void;
   onOpenDeviceManager: () => void;
   onTogglePin: (id: string) => void;
@@ -49,12 +53,17 @@ interface MainDashboardProps {
   onClearUnpinned: () => void;
   onOpenWindowsClient?: () => void;
   onOpenSettings?: () => void;
+  onLogout?: () => void;
 }
 
 export const MainDashboard: React.FC<MainDashboardProps> = ({
   items,
   devices,
   activeDevice,
+  currentUser,
+  userCode = 'USR-7721-A',
+  onOpenUserModal,
+  onOpenGroupModal,
   onOpenDrawer,
   onOpenDeviceManager,
   onTogglePin,
@@ -66,12 +75,14 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   onClearUnpinned,
   onOpenWindowsClient,
   onOpenSettings,
+  onLogout,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<FilterCategory>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [quickInput, setQuickInput] = useState('');
   const [isAddingManually, setIsAddingManually] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   // Filtered items
   const filteredItems = useMemo(() => {
@@ -174,49 +185,142 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </div>
         </div>
 
-        {/* Center/Right Nav buttons */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          {/* Settings & ngrok Page Link */}
-          {onOpenSettings && (
+        {/* Streamlined Right Nav Controls */}
+        <div className="flex items-center gap-2.5">
+          {/* Group Mode Quick Button */}
+          {onOpenGroupModal && (
             <button
-              onClick={onOpenSettings}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-all backdrop-blur-md active:scale-95"
-              title="Configurações & Acesso Remoto com ngrok"
+              id="open-group-modal-header-btn"
+              onClick={onOpenGroupModal}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-xs text-purple-300 font-semibold transition-all backdrop-blur-md active:scale-95"
+              title="Modo Grupo / Compartilhar Cards em Tempo Real"
             >
-              <Globe className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="font-bold hidden md:inline">Configurações (ngrok)</span>
+              <span className="text-purple-400">👥</span>
+              <span className="hidden sm:inline">Modo Grupo</span>
             </button>
           )}
 
-          {/* Installation Page Link */}
-          <button
-            onClick={onOpenWindowsClient}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-all backdrop-blur-md active:scale-95"
-            title="Ver guia de instalação"
-          >
-            <Download className="w-3.5 h-3.5 text-blue-400" />
-            <span className="font-bold hidden md:inline">Instalar Cliente</span>
-          </button>
-
-          {/* Device Manager */}
-          <button
-            onClick={onOpenDeviceManager}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-all backdrop-blur-md"
-            title="Ver aparelhos cadastrados"
-          >
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold hidden lg:inline">{devices.length} Ativos</span>
-          </button>
-
-          {/* Quick open drawer button */}
+          {/* Quick Open Drawer Button */}
           <button
             onClick={onOpenDrawer}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-500/20 border border-white/20 active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs font-bold transition-all shadow-lg shadow-blue-500/20 border border-white/20 active:scale-95"
+            title="Abrir Gaveta de Atalho"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Acesso Rápido</span>
-            <span className="md:hidden">Gaveta</span>
+            <span className="hidden sm:inline">Gaveta</span>
           </button>
+
+          {/* User Profile & Menu Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs text-slate-200 transition-all active:scale-95"
+              title="Menu do Usuário"
+            >
+              <div 
+                className="w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-[11px] shadow-sm"
+                style={{ backgroundColor: currentUser?.avatarColor || '#3b82f6' }}
+              >
+                {currentUser ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <span className="font-medium text-white max-w-[100px] truncate hidden md:inline">
+                {currentUser?.name || 'Usuário'}
+              </span>
+              <span className="font-mono text-[10px] text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">
+                {userCode}
+              </span>
+            </button>
+
+            {/* Dropdown Menu */}
+            {isUserMenuOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setIsUserMenuOpen(false)} 
+                />
+                <div className="absolute right-0 mt-2 w-64 z-50 bg-[#0f1424] border border-white/15 rounded-2xl shadow-2xl p-2.5 space-y-1.5 backdrop-blur-2xl animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* User info box */}
+                  <div className="p-2.5 rounded-xl bg-white/5 border border-white/10">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div 
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs"
+                        style={{ backgroundColor: currentUser?.avatarColor || '#3b82f6' }}
+                      >
+                        {currentUser ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-white truncate">{currentUser?.name || 'Usuário'}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{currentUser?.email || 'user@clipsync.io'}</p>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-[11px]">
+                      <span className="text-slate-400">Código de Conexão:</span>
+                      <span className="font-mono font-bold text-blue-300 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/30">
+                        {userCode}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions list */}
+                  <div className="space-y-0.5 pt-1">
+                    {onOpenDeviceManager && (
+                      <button
+                        onClick={() => { setIsUserMenuOpen(false); onOpenDeviceManager(); }}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-slate-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Laptop className="w-3.5 h-3.5 text-blue-400" />
+                          <span>Dispositivos Conectados</span>
+                        </span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                          {devices.length} ativos
+                        </span>
+                      </button>
+                    )}
+
+                    {onOpenWindowsClient && (
+                      <button
+                        onClick={() => { setIsUserMenuOpen(false); onOpenWindowsClient(); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                      >
+                        <Download className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Instalar Cliente Python / Windows</span>
+                      </button>
+                    )}
+
+                    {onOpenSettings && (
+                      <button
+                        onClick={() => { setIsUserMenuOpen(false); onOpenSettings(); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                      >
+                        <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Configurações & ngrok</span>
+                      </button>
+                    )}
+
+                    {onOpenUserModal && (
+                      <button
+                        onClick={() => { setIsUserMenuOpen(false); onOpenUserModal(); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-300 hover:text-white hover:bg-white/5 transition-all text-left"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Gerenciar Usuários & Códigos</span>
+                      </button>
+                    )}
+
+                    {onLogout && (
+                      <button
+                        onClick={() => { setIsUserMenuOpen(false); onLogout(); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-rose-300 hover:text-rose-100 hover:bg-rose-500/10 transition-all text-left font-medium mt-1 border-t border-white/10"
+                      >
+                        <span>🚪 Sair da Conta</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -381,7 +485,16 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
                       {getDeviceIcon(item.deviceType)}
                       <span className="text-[10px] text-slate-600 font-medium truncate max-w-[100px]">{item.deviceName}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      {onOpenGroupModal && (
+                        <button
+                          onClick={onOpenGroupModal}
+                          className="p-1.5 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
+                          title="Compartilhar em Sala de Grupo"
+                        >
+                          👥
+                        </button>
+                      )}
                       <button onClick={() => onDeleteItem(item.id)} className="p-2 text-slate-700 hover:text-rose-500 transition-colors">
                         <Trash2 className="w-4 h-4" />
                       </button>

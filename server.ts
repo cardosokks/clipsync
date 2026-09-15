@@ -41,22 +41,216 @@ interface Device {
   color?: string;
 }
 
-// In-memory data store for synced items across connected devices
-let clipboardStore: ClipboardItem[] = [];
+interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  userCode: string;
+  avatarColor: string;
+  createdAt: number;
+}
 
-let registeredDevices: Device[] = [];
+interface GroupMember {
+  userId: string;
+  userName: string;
+  userCode: string;
+  avatarColor: string;
+  joinedAt: number;
+}
 
-// Active SSE client connections for real-time live broadcasting
+interface GroupCard extends ClipboardItem {
+  sharedByUserId: string;
+  sharedByUserName: string;
+  sharedByUserCode: string;
+  sharedByAvatarColor?: string;
+  sharedAt: number;
+  roomId: string;
+}
+
+interface GroupRoom {
+  id: string;
+  roomCode: string;
+  name: string;
+  hostUserId: string;
+  hostUserName: string;
+  hostUserCode: string;
+  members: GroupMember[];
+  cards: GroupCard[];
+  createdAt: number;
+}
+
+// Initial registered users list
+const users: UserProfile[] = [
+  {
+    id: 'usr-1',
+    name: 'Carlos Silva',
+    email: 'carlos@clipsync.io',
+    userCode: 'USR-7721-A',
+    avatarColor: '#3b82f6',
+    createdAt: Date.now() - 86400000 * 5,
+  },
+  {
+    id: 'usr-2',
+    name: 'Mariana Costa',
+    email: 'mariana@clipsync.io',
+    userCode: 'USR-3394-B',
+    avatarColor: '#ec4899',
+    createdAt: Date.now() - 86400000 * 3,
+  },
+  {
+    id: 'usr-3',
+    name: 'Lucas Oliveira',
+    email: 'lucas@clipsync.io',
+    userCode: 'USR-9102-C',
+    avatarColor: '#10b981',
+    createdAt: Date.now() - 86400000 * 1,
+  }
+];
+
+// Per-user isolated stores
+const userClipboards = new Map<string, ClipboardItem[]>();
+const userDevices = new Map<string, Device[]>();
+
+// Group rooms store
+const groupRooms = new Map<string, GroupRoom>();
+
+// Seed default room
+groupRooms.set('ROOM-4821', {
+  id: 'ROOM-4821',
+  roomCode: 'ROOM-4821',
+  name: 'Sala de Testes & Compartilhamento',
+  hostUserId: 'usr-1',
+  hostUserName: 'Carlos Silva',
+  hostUserCode: 'USR-7721-A',
+  members: [
+    {
+      userId: 'usr-1',
+      userName: 'Carlos Silva',
+      userCode: 'USR-7721-A',
+      avatarColor: '#3b82f6',
+      joinedAt: Date.now() - 3600000
+    },
+    {
+      userId: 'usr-2',
+      userName: 'Mariana Costa',
+      userCode: 'USR-3394-B',
+      avatarColor: '#ec4899',
+      joinedAt: Date.now() - 1800000
+    }
+  ],
+  cards: [
+    {
+      id: 'group-card-1',
+      type: 'code',
+      title: 'Script da Sala de Grupo',
+      content: 'def sync_room(card):\n    print(f"Recebido card compartilhado: {card}")\n    return True',
+      deviceId: 'dev-python-client',
+      deviceName: 'Python Client Desktop',
+      deviceType: 'desktop',
+      createdAt: Date.now() - 1200000,
+      isPinned: true,
+      category: 'Código',
+      tags: ['grupo', 'compartilhado'],
+      sharedByUserId: 'usr-1',
+      sharedByUserName: 'Carlos Silva',
+      sharedByUserCode: 'USR-7721-A',
+      sharedByAvatarColor: '#3b82f6',
+      sharedAt: Date.now() - 1200000,
+      roomId: 'ROOM-4821'
+    }
+  ],
+  createdAt: Date.now() - 86400000
+});
+
+function getOrCreateUserStore(userCode: string) {
+  let cleanCode = (userCode || 'USR-7721-A').toUpperCase().trim();
+  
+  let user = users.find(u => u.userCode === cleanCode);
+  if (!user) {
+    user = {
+      id: 'usr-' + Math.random().toString(36).substring(2, 9),
+      name: `Usuário (${cleanCode})`,
+      email: `user_${cleanCode.toLowerCase().replace(/[^a-z0-9]/g, '')}@clipsync.io`,
+      userCode: cleanCode,
+      avatarColor: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
+      createdAt: Date.now(),
+    };
+    users.push(user);
+  }
+
+  if (!userClipboards.has(cleanCode)) {
+    userClipboards.set(cleanCode, [
+      {
+        id: 'clip-init-' + cleanCode + '-1',
+        type: 'text',
+        title: 'Painel Privado Criado com Sucesso',
+        content: `Este painel é exclusivo do seu Código de Conexão (${cleanCode}). Insira este código no cliente desktop Python para conectar seus dispositivos.`,
+        deviceId: 'dev-system',
+        deviceName: 'Sistema ClipSync',
+        deviceType: 'desktop',
+        createdAt: Date.now(),
+        isPinned: true,
+        category: 'Textos',
+        tags: ['privado', 'código-conexao', cleanCode]
+      }
+    ]);
+  }
+
+  if (!userDevices.has(cleanCode)) {
+    userDevices.set(cleanCode, [
+      {
+        id: 'dev-web-' + cleanCode,
+        name: 'Navegador Web (' + user.name + ')',
+        type: 'desktop',
+        isCurrent: true,
+        lastSeen: Date.now(),
+        os: 'Navegador Web',
+        browser: 'Chrome / Edge',
+        color: user.avatarColor,
+      }
+    ]);
+  }
+
+  return { user, cleanCode, items: userClipboards.get(cleanCode)!, devices: userDevices.get(cleanCode)! };
+}
+
+function getUserCodeFromReq(req: Request): string {
+  const codeHeader = req.headers['x-user-code'] as string;
+  const authHeader = req.headers['authorization'] as string;
+  const queryCode = (req.query.userCode || req.query.code) as string;
+  const bodyCode = req.body?.userCode as string;
+
+  let raw = codeHeader || queryCode || bodyCode;
+  if (!raw && authHeader) {
+    if (authHeader.startsWith('Bearer ')) {
+      raw = authHeader.replace('Bearer ', '');
+    } else {
+      raw = authHeader;
+    }
+  }
+
+  if (raw && raw.trim()) {
+    return raw.trim().toUpperCase();
+  }
+
+  return 'USR-7721-A';
+}
+
+// Active SSE client connections
 interface SSEClient {
   id: string;
+  userCode: string;
   res: Response;
 }
 const sseClients = new Map<string, SSEClient>();
 
-function broadcastSSE(type: string, data: unknown) {
+function broadcastSSE(type: string, data: unknown, targetUserCode?: string) {
   const payload = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of sseClients.values()) {
     try {
+      if (targetUserCode && client.userCode && client.userCode !== targetUserCode) {
+        continue;
+      }
       client.res.write(payload);
     } catch {
       sseClients.delete(client.id);
@@ -117,7 +311,7 @@ async function startServer() {
       port: PORT,
       isNgrok: Boolean(ngrokUrl || publicUrl.toLowerCase().includes('ngrok')),
       connectedClients: sseClients.size,
-      activeDevices: registeredDevices.length,
+      activeDevices: Array.from(userDevices.values()).reduce((acc, list) => acc + list.length, 0),
       ngrokActive: Boolean(ngrokListener && ngrokUrl),
       ngrokUrl: ngrokUrl,
       hasAuthToken: Boolean(ngrokAuthToken && ngrokAuthToken.trim().length > 0),
@@ -290,8 +484,286 @@ async function startServer() {
     });
   });
 
-  // Server-Sent Events (SSE) for automatic real-time sync across tabs and devices
+  // --- USER MANAGEMENT ENDPOINTS ---
+  app.get('/api/users', (req: Request, res: Response) => {
+    res.json({ users });
+  });
+
+  app.get('/api/users/me', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { user, items, devices } = getOrCreateUserStore(userCode);
+    res.json({ user, itemCount: items.length, deviceCount: devices.length });
+  });
+
+  // --- AUTHENTICATION ENDPOINTS ---
+  app.post('/api/auth/login', (req: Request, res: Response) => {
+    const { identifier, password } = req.body || {};
+    if (!identifier || !String(identifier).trim()) {
+      return res.status(400).json({ error: 'Informe o e-mail ou o código de conexão.' });
+    }
+
+    const cleanId = String(identifier).trim().toUpperCase();
+    const cleanEmail = String(identifier).trim().toLowerCase();
+
+    // 1. Search by userCode
+    let matchedUser = users.find(u => u.userCode.toUpperCase() === cleanId);
+
+    // 2. Search by email if not found by userCode
+    if (!matchedUser) {
+      matchedUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+    }
+
+    // 3. Auto-provision guest user if userCode matches USR-* pattern
+    if (!matchedUser && cleanId.startsWith('USR-')) {
+      const { user } = getOrCreateUserStore(cleanId);
+      matchedUser = user;
+    }
+
+    if (!matchedUser) {
+      return res.status(401).json({ error: 'Usuário não encontrado com este e-mail ou código.' });
+    }
+
+    res.json({
+      success: true,
+      user: matchedUser,
+      userCode: matchedUser.userCode,
+      token: matchedUser.userCode
+    });
+  });
+
+  app.post('/api/auth/register', (req: Request, res: Response) => {
+    const { name, email, password, customUserCode } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'O nome é obrigatório para o cadastro.' });
+    }
+
+    let newCode = (customUserCode && String(customUserCode).trim().length >= 4)
+      ? String(customUserCode).trim().toUpperCase()
+      : 'USR-' + Math.floor(1000 + Math.random() * 9000) + '-' + String.fromCharCode(65 + Math.floor(Math.random() * 26));
+
+    // Check code collision
+    if (users.some(u => u.userCode === newCode)) {
+      newCode = 'USR-' + Math.floor(1000 + Math.random() * 9000) + '-' + String.fromCharCode(65 + Math.floor(Math.random() * 26));
+    }
+
+    const newUser: UserProfile = {
+      id: 'usr-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      name: String(name).trim(),
+      email: email ? String(email).trim().toLowerCase() : `user_${newCode.toLowerCase().replace(/[^a-z0-9]/g, '')}@clipsync.io`,
+      userCode: newCode,
+      avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+      createdAt: Date.now(),
+    };
+
+    users.push(newUser);
+    getOrCreateUserStore(newCode);
+
+    res.json({
+      success: true,
+      user: newUser,
+      userCode: newUser.userCode,
+      token: newUser.userCode
+    });
+  });
+
+  app.post('/api/users', (req: Request, res: Response) => {
+    const { name, email, customUserCode } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Nome do usuário é obrigatório.' });
+    }
+
+    const newCode = (customUserCode && customUserCode.trim().length >= 4)
+      ? customUserCode.trim().toUpperCase()
+      : 'USR-' + Math.floor(1000 + Math.random() * 9000) + '-' + String.fromCharCode(65 + Math.floor(Math.random() * 26));
+
+    const newUser: UserProfile = {
+      id: 'usr-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      name: name.trim(),
+      email: email ? email.trim() : `user_${newCode.toLowerCase()}@clipsync.io`,
+      userCode: newCode,
+      avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+      createdAt: Date.now(),
+    };
+
+    users.push(newUser);
+    getOrCreateUserStore(newCode);
+
+    res.json({ success: true, user: newUser });
+  });
+
+  app.post('/api/users/code/regenerate', (req: Request, res: Response) => {
+    const currentCode = getUserCodeFromReq(req);
+    const { user } = getOrCreateUserStore(currentCode);
+
+    const newCode = 'USR-' + Math.floor(1000 + Math.random() * 9000) + '-' + String.fromCharCode(65 + Math.floor(Math.random() * 26));
+
+    // Migrate items & devices to new code
+    const existingItems = userClipboards.get(currentCode) || [];
+    const existingDevices = userDevices.get(currentCode) || [];
+
+    userClipboards.delete(currentCode);
+    userDevices.delete(currentCode);
+
+    user.userCode = newCode;
+    userClipboards.set(newCode, existingItems);
+    userDevices.set(newCode, existingDevices);
+
+    res.json({ success: true, userCode: newCode, user });
+  });
+
+  // --- GROUP ROOMS ENDPOINTS ---
+  app.get('/api/group/rooms', (req: Request, res: Response) => {
+    const roomList = Array.from(groupRooms.values()).map(r => ({
+      id: r.id,
+      roomCode: r.roomCode,
+      name: r.name,
+      hostUserName: r.hostUserName,
+      memberCount: r.members.length,
+      cardCount: r.cards.length,
+      createdAt: r.createdAt
+    }));
+    res.json({ rooms: roomList });
+  });
+
+  app.get('/api/group/room/:roomCode', (req: Request, res: Response) => {
+    const { roomCode } = req.params;
+    const cleanCode = (roomCode || '').toUpperCase().trim();
+    const room = groupRooms.get(cleanCode);
+    if (!room) {
+      return res.status(404).json({ error: 'Sala de grupo não encontrada.' });
+    }
+    res.json({ room });
+  });
+
+  app.post('/api/group/create', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { user } = getOrCreateUserStore(userCode);
+    const { roomName } = req.body;
+
+    const roomCode = 'ROOM-' + Math.floor(1000 + Math.random() * 9000);
+    const newRoom: GroupRoom = {
+      id: roomCode,
+      roomCode: roomCode,
+      name: roomName ? roomName.trim() : `Sala de ${user.name}`,
+      hostUserId: user.id,
+      hostUserName: user.name,
+      hostUserCode: user.userCode,
+      members: [
+        {
+          userId: user.id,
+          userName: user.name,
+          userCode: user.userCode,
+          avatarColor: user.avatarColor,
+          joinedAt: Date.now()
+        }
+      ],
+      cards: [],
+      createdAt: Date.now()
+    };
+
+    groupRooms.set(roomCode, newRoom);
+    broadcastSSE('group_room_created', { room: newRoom });
+
+    res.json({ success: true, room: newRoom });
+  });
+
+  app.post('/api/group/join', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { user } = getOrCreateUserStore(userCode);
+    const { roomCode } = req.body;
+
+    if (!roomCode) {
+      return res.status(400).json({ error: 'Código da sala é obrigatório.' });
+    }
+
+    const cleanCode = String(roomCode).toUpperCase().trim();
+    const room = groupRooms.get(cleanCode);
+
+    if (!room) {
+      return res.status(404).json({ error: 'Sala não encontrada com esse código.' });
+    }
+
+    // Add member if not present
+    if (!room.members.some(m => m.userCode === user.userCode)) {
+      room.members.push({
+        userId: user.id,
+        userName: user.name,
+        userCode: user.userCode,
+        avatarColor: user.avatarColor,
+        joinedAt: Date.now()
+      });
+      broadcastSSE('group_user_joined', { roomCode: cleanCode, user, room });
+    }
+
+    res.json({ success: true, room });
+  });
+
+  app.post('/api/group/leave', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { roomCode } = req.body;
+
+    const cleanCode = String(roomCode || '').toUpperCase().trim();
+    const room = groupRooms.get(cleanCode);
+
+    if (room) {
+      room.members = room.members.filter(m => m.userCode !== userCode);
+      broadcastSSE('group_user_left', { roomCode: cleanCode, userCode, room });
+    }
+
+    res.json({ success: true });
+  });
+
+  app.post('/api/group/share-card', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { user } = getOrCreateUserStore(userCode);
+    const { roomCode, item } = req.body;
+
+    if (!roomCode || !item) {
+      return res.status(400).json({ error: 'Código da sala e item são obrigatórios.' });
+    }
+
+    const cleanCode = String(roomCode).toUpperCase().trim();
+    const room = groupRooms.get(cleanCode);
+
+    if (!room) {
+      return res.status(404).json({ error: 'Sala de grupo não encontrada.' });
+    }
+
+    const sharedCard: GroupCard = {
+      ...item,
+      id: 'group-card-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      sharedByUserId: user.id,
+      sharedByUserName: user.name,
+      sharedByUserCode: user.userCode,
+      sharedByAvatarColor: user.avatarColor,
+      sharedAt: Date.now(),
+      roomId: cleanCode
+    };
+
+    room.cards.unshift(sharedCard);
+    if (room.cards.length > 100) room.cards.pop();
+
+    broadcastSSE('group_card_shared', { roomCode: cleanCode, card: sharedCard, room });
+
+    res.json({ success: true, card: sharedCard, room });
+  });
+
+  app.post('/api/group/delete-card', (req: Request, res: Response) => {
+    const { roomCode, cardId } = req.body;
+    const cleanCode = String(roomCode || '').toUpperCase().trim();
+    const room = groupRooms.get(cleanCode);
+
+    if (room) {
+      room.cards = room.cards.filter(c => c.id !== cardId);
+      broadcastSSE('group_card_deleted', { roomCode: cleanCode, cardId, room });
+    }
+
+    res.json({ success: true });
+  });
+
+  // --- SSE REAL-TIME CONNECT ---
   app.get('/api/events', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
     const clientId = 'client-' + Math.random().toString(36).substring(2, 9);
     
     res.writeHead(200, {
@@ -301,22 +773,26 @@ async function startServer() {
       'Access-Control-Allow-Origin': '*',
     });
 
-    res.write(`event: connected\ndata: ${JSON.stringify({ clientId, timestamp: Date.now() })}\n\n`);
+    res.write(`event: connected\ndata: ${JSON.stringify({ clientId, userCode, timestamp: Date.now() })}\n\n`);
 
-    sseClients.set(clientId, { id: clientId, res });
+    sseClients.set(clientId, { id: clientId, userCode, res });
 
     req.on('close', () => {
       sseClients.delete(clientId);
     });
   });
 
-  // Get all clipboard items
-  app.get('/api/clipboard', (_req: Request, res: Response) => {
-    res.json({ items: clipboardStore });
+  // --- ISOLATED PER-USER CLIPBOARD ENDPOINTS ---
+  app.get('/api/clipboard', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { items } = getOrCreateUserStore(userCode);
+    res.json({ items, userCode });
   });
 
-  // Add new clipboard item (Ctrl+C, Drag & drop, or Paste)
   app.post('/api/clipboard', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, items } = getOrCreateUserStore(userCode);
+
     const {
       type = 'text',
       title,
@@ -337,14 +813,13 @@ async function startServer() {
       return res.status(400).json({ error: 'Conteúdo ou arquivo é obrigatório.' });
     }
 
-    // --- DEDUPLICAÇÃO ---
-    // Se for texto e já existir um item com o mesmo conteúdo nos últimos 10 itens, não cria de novo.
+    // Deduplication check per user
     if (type === 'text' && content) {
-      const existingItem = clipboardStore.slice(0, 10).find(i => i.content === content);
+      const existingItem = items.slice(0, 10).find(i => i.content === content);
       if (existingItem) {
-        // Apenas move para o topo se já existir
-        clipboardStore = [existingItem, ...clipboardStore.filter(i => i.id !== existingItem.id)];
-        broadcastSSE('clipboard_updated', existingItem);
+        const updatedList = [existingItem, ...items.filter(i => i.id !== existingItem.id)];
+        userClipboards.set(cleanCode, updatedList);
+        broadcastSSE('clipboard_updated', existingItem, cleanCode);
         return res.json({ item: existingItem, isDuplicate: true });
       }
     }
@@ -369,28 +844,27 @@ async function startServer() {
       lineCount: content ? content.split('\n').length : 1,
     };
 
-    // Prepend to list
-    clipboardStore = [newItem, ...clipboardStore];
-
-    // Keep store capped at 250 items to avoid infinite memory bloat
-    if (clipboardStore.length > 250) {
-      // Keep pinned items, prune oldest unpinned
-      const pinned = clipboardStore.filter(i => i.isPinned);
-      const unpinned = clipboardStore.filter(i => !i.isPinned).slice(0, 200);
-      clipboardStore = [...pinned, ...unpinned].sort((a, b) => b.createdAt - a.createdAt);
+    const newStore = [newItem, ...items];
+    if (newStore.length > 250) {
+      const pinned = newStore.filter(i => i.isPinned);
+      const unpinned = newStore.filter(i => !i.isPinned).slice(0, 200);
+      userClipboards.set(cleanCode, [...pinned, ...unpinned].sort((a, b) => b.createdAt - a.createdAt));
+    } else {
+      userClipboards.set(cleanCode, newStore);
     }
 
-    // Broadcast to all other devices/clients instantly
-    broadcastSSE('clipboard_created', newItem);
+    broadcastSSE('clipboard_created', newItem, cleanCode);
 
-    res.status(201).json({ item: newItem });
+    res.status(201).json({ item: newItem, userCode: cleanCode });
   });
-  
-  // File Upload endpoint (multipart/form-data)
+
   app.post('/api/upload', upload.single('file'), (req: Request, res: Response) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
     }
+
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, items } = getOrCreateUserStore(userCode);
 
     const { deviceId = 'dev-desktop', deviceName = 'Windows Desktop' } = req.body;
     const fileContent = req.file.buffer.toString('base64');
@@ -410,79 +884,88 @@ async function startServer() {
       createdAt: Date.now(),
       isPinned: false,
       category: type === 'image' ? 'Imagens' : 'Arquivos',
-      tags: ['upload', 'desktop']
+      tags: ['upload', 'desktop', cleanCode]
     };
 
-    clipboardStore = [newItem, ...clipboardStore];
-    if (clipboardStore.length > 250) clipboardStore.pop();
-    
-    broadcastSSE('clipboard_created', newItem);
+    userClipboards.set(cleanCode, [newItem, ...items]);
+    broadcastSSE('clipboard_created', newItem, cleanCode);
     res.json({ success: true, item: newItem });
   });
 
-  // Toggle pin or update item
   app.patch('/api/clipboard/:id', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, items } = getOrCreateUserStore(userCode);
     const { id } = req.params;
     const { isPinned, title, content, tags } = req.body;
 
-    const itemIndex = clipboardStore.findIndex(i => i.id === id);
+    const itemIndex = items.findIndex(i => i.id === id);
     if (itemIndex === -1) {
       return res.status(404).json({ error: 'Item não encontrado.' });
     }
 
     const updatedItem = {
-      ...clipboardStore[itemIndex],
+      ...items[itemIndex],
       ...(isPinned !== undefined ? { isPinned } : {}),
       ...(title !== undefined ? { title } : {}),
       ...(content !== undefined ? { content } : {}),
       ...(tags !== undefined ? { tags } : {}),
     };
 
-    clipboardStore[itemIndex] = updatedItem;
+    items[itemIndex] = updatedItem;
+    userClipboards.set(cleanCode, items);
 
-    broadcastSSE('clipboard_updated', updatedItem);
+    broadcastSSE('clipboard_updated', updatedItem, cleanCode);
     res.json({ item: updatedItem });
   });
 
-  // Delete specific item
   app.delete('/api/clipboard/:id', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, items } = getOrCreateUserStore(userCode);
     const { id } = req.params;
-    const itemIndex = clipboardStore.findIndex(i => i.id === id);
+
+    const itemIndex = items.findIndex(i => i.id === id);
     if (itemIndex === -1) {
       return res.status(404).json({ error: 'Item não encontrado.' });
     }
 
-    const deletedItem = clipboardStore[itemIndex];
-    clipboardStore = clipboardStore.filter(i => i.id !== id);
+    const deletedItem = items[itemIndex];
+    const newItems = items.filter(i => i.id !== id);
+    userClipboards.set(cleanCode, newItems);
 
-    broadcastSSE('clipboard_deleted', { id, deletedItem });
+    broadcastSSE('clipboard_deleted', { id, deletedItem }, cleanCode);
     res.json({ success: true, id });
   });
 
-  // Clear unpinned items
-  app.post('/api/clipboard/clear-unpinned', (_req: Request, res: Response) => {
-    const countBefore = clipboardStore.length;
-    clipboardStore = clipboardStore.filter(i => i.isPinned);
-    const removedCount = countBefore - clipboardStore.length;
+  app.post('/api/clipboard/clear-unpinned', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, items } = getOrCreateUserStore(userCode);
 
-    broadcastSSE('clipboard_cleared', { remaining: clipboardStore.length });
-    res.json({ success: true, removedCount, remaining: clipboardStore });
+    const countBefore = items.length;
+    const remaining = items.filter(i => i.isPinned);
+    userClipboards.set(cleanCode, remaining);
+
+    broadcastSSE('clipboard_cleared', { remaining: remaining.length }, cleanCode);
+    res.json({ success: true, removedCount: countBefore - remaining.length, remaining });
   });
 
-  // Devices endpoints
-  app.get('/api/devices', (_req: Request, res: Response) => {
-    res.json({ devices: registeredDevices });
+  // --- ISOLATED PER-USER DEVICES ENDPOINTS ---
+  app.get('/api/devices', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { devices } = getOrCreateUserStore(userCode);
+    res.json({ devices });
   });
 
-  // Register or update device
   app.post('/api/devices', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, devices, items } = getOrCreateUserStore(userCode);
+
     const { id, name, type = 'desktop', os, browser } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Nome do dispositivo é obrigatório.' });
     }
 
     const deviceId = id || 'dev-' + Math.random().toString(36).substring(2, 9);
-    const existingIndex = registeredDevices.findIndex(d => d.id === deviceId);
+    const existingIndex = devices.findIndex(d => d.id === deviceId);
 
     const deviceObj: Device = {
       id: deviceId,
@@ -496,63 +979,68 @@ async function startServer() {
     };
 
     if (existingIndex >= 0) {
-      registeredDevices[existingIndex] = { ...registeredDevices[existingIndex], ...deviceObj };
+      devices[existingIndex] = { ...devices[existingIndex], ...deviceObj };
     } else {
-      registeredDevices.push(deviceObj);
+      devices.push(deviceObj);
 
-      // NOTIFICAÇÃO NO PAINEL: Adiciona um item especial informando a nova conexão
       const notificationItem: ClipboardItem = {
         id: Math.random().toString(36).substring(2, 11),
-        content: `Novo dispositivo Windows "${deviceObj.name}" conectado com sucesso! v1.5.1`,
-        title: "Dispositivo Pareado",
+        content: `Novo dispositivo "${deviceObj.name}" conectado ao seu Código (${cleanCode})!`,
+        title: "Dispositivo Conectado",
         type: "text",
         createdAt: Date.now(),
         deviceId: "system",
         deviceName: "Sistema ClipSync",
         deviceType: "desktop",
         category: "Notificações",
-        tags: ["sistema", "conexão", "windows"],
+        tags: ["sistema", "conexão", cleanCode],
         isPinned: false
       };
-      clipboardStore.unshift(notificationItem);
-      if (clipboardStore.length > 50) clipboardStore.pop();
+      items.unshift(notificationItem);
     }
 
-    broadcastSSE('device_registered', deviceObj);
-    res.json({ device: deviceObj, devices: registeredDevices });
+    userDevices.set(cleanCode, devices);
+    broadcastSSE('device_registered', deviceObj, cleanCode);
+    res.json({ device: deviceObj, devices });
   });
 
-  // Remove registered device
   app.delete('/api/devices/:id', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, devices } = getOrCreateUserStore(userCode);
     const { id } = req.params;
-    registeredDevices = registeredDevices.filter(d => d.id !== id);
-    broadcastSSE('device_removed', { id });
-    res.json({ success: true, id, devices: registeredDevices });
+
+    const updatedDevices = devices.filter(d => d.id !== id);
+    userDevices.set(cleanCode, updatedDevices);
+
+    broadcastSSE('device_removed', { id }, cleanCode);
+    res.json({ success: true, id, devices: updatedDevices });
   });
 
   // Trigger simulated sync from a registered device (for testing cross-device clipboard)
   app.post('/api/devices/simulate-sync', (req: Request, res: Response) => {
+    const userCode = getUserCodeFromReq(req);
+    const { cleanCode, devices, items } = getOrCreateUserStore(userCode);
     const { deviceId, content, type = 'text', title } = req.body;
-    const device = registeredDevices.find(d => d.id === deviceId) || registeredDevices[1] || registeredDevices[0];
+    const device = devices.find(d => d.id === deviceId) || devices[0] || { id: 'dev-sim', name: 'Simulador Desktop', type: 'desktop' };
 
     const newItem: ClipboardItem = {
       id: 'clip-sim-' + Date.now(),
-      type,
+      type: type as ClipboardItem['type'],
       title: title || `Item copiado de ${device.name}`,
       content: content || `Texto sincronizado automaticamente via ${device.name} às ${new Date().toLocaleTimeString('pt-BR')}`,
       deviceId: device.id,
       deviceName: device.name,
-      deviceType: device.type,
+      deviceType: device.type as any,
       createdAt: Date.now(),
       isPinned: false,
       category: 'Sincronizados',
-      tags: ['remoto', 'auto-sync'],
+      tags: ['remoto', 'auto-sync', cleanCode],
       charCount: content ? content.length : 80,
       lineCount: 1,
     };
 
-    clipboardStore = [newItem, ...clipboardStore];
-    broadcastSSE('clipboard_created', newItem);
+    userClipboards.set(cleanCode, [newItem, ...items]);
+    broadcastSSE('clipboard_created', newItem, cleanCode);
     res.json({ item: newItem });
   });
 
@@ -561,13 +1049,16 @@ async function startServer() {
   // Get current server connection config & status for the client
   app.get('/api/client/config', (req: Request, res: Response) => {
     const serverUrl = resolveServerUrl(req);
+    const userCode = getUserCodeFromReq(req);
+    const { devices } = getOrCreateUserStore(userCode);
 
     res.json({
       serverUrl,
+      userCode,
       version: '2.0.0',
       status: 'online',
       isNgrok: serverUrl.toLowerCase().includes('ngrok'),
-      activeDevices: registeredDevices.length,
+      activeDevices: devices.length,
       connectedSSEClients: sseClients.size,
       osSupported: 'Windows 10, Windows 11 (x64 / ARM64)',
       token: 'clip_' + Math.random().toString(36).substring(2, 10),
@@ -766,7 +1257,7 @@ Register-Device | Out-Null
 `;
 
   // Professional Python GUI Client (v2.0)
-  const generatePythonClient = (serverUrl: string) => `
+  const generatePythonClient = (serverUrl: string, userCode: string = 'USR-7721-A') => `
 import os
 import json
 import time
@@ -790,18 +1281,56 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 CONFIG_FILE = "config.json"
+ALTGR_PRESSED = False
+
+# Listener Global de Teclado (Detecta se AltGr está Pressionado)
+try:
+    from pynput import keyboard
+
+    def _on_key_press(key):
+        global ALTGR_PRESSED
+        if key == keyboard.Key.alt_gr or getattr(key, 'name', None) in ['alt_gr', 'alt_r']:
+            ALTGR_PRESSED = True
+
+    def _on_key_release(key):
+        global ALTGR_PRESSED
+        if key == keyboard.Key.alt_gr or getattr(key, 'name', None) in ['alt_gr', 'alt_r']:
+            ALTGR_PRESSED = False
+
+    _kb_listener = keyboard.Listener(on_press=_on_key_press, on_release=_on_key_release)
+    _kb_listener.daemon = True
+    _kb_listener.start()
+except Exception as _e:
+    pass
+
+def is_altgr_pressed():
+    try:
+        import ctypes
+        # 0xA5 = VK_RMENU (AltGr / Right Alt no Windows)
+        # 0x12 = VK_MENU (Tecla Alt)
+        if (ctypes.windll.user32.GetAsyncKeyState(0xA5) & 0x8000) != 0:
+            return True
+        if (ctypes.windll.user32.GetAsyncKeyState(0x12) & 0x8000) != 0:
+            return True
+    except Exception:
+        pass
+    return ALTGR_PRESSED
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                cfg = json.load(f)
+                if "userCode" not in cfg or not cfg["userCode"]:
+                    cfg["userCode"] = "${userCode}"
+                return cfg
         except Exception:
             pass
     return {
         "deviceId": str(uuid.uuid4())[:8], 
         "deviceName": socket.gethostname(),
-        "serverUrl": "${serverUrl}"
+        "serverUrl": "${serverUrl}",
+        "userCode": "${userCode}"
     }
 
 def save_config(config_data):
@@ -899,18 +1428,23 @@ class MagicBarOverlay(ctk.CTkToplevel):
         if self.is_active:
             try:
                 px, py = self.winfo_pointerxy()
+                screen_w = self.winfo_screenwidth()
+                
                 wx, wy = self.winfo_rootx(), self.winfo_rooty()
                 ww, wh = self.winfo_width(), self.winfo_height()
                 
                 is_over = (wx <= px <= wx + ww) and (wy <= py <= wy + wh)
-                is_at_top = (self.x_pos < px < self.x_pos + self.width_val) and (py < 6)
+                is_at_top = (py <= 45) and ((screen_w // 2 - 500) <= px <= (screen_w // 2 + 500))
                 
-                if is_at_top:
-                    if self.hover_start == 0:
-                        self.hover_start = time.time()
-                    if time.time() - self.hover_start > 0.3 and not self.visible:
+                altgr_down = is_altgr_pressed()
+                
+                # O painel abre quando AltGr estiver segurado E o mouse no topo da tela ou sobre a barra!
+                if (is_at_top or is_over) and altgr_down:
+                    if not self.visible:
+                        self.lift()
+                        self.attributes("-topmost", True)
                         self.expand(mode="browse")
-                elif not is_over and self.visible and not self._animating:
+                elif not is_over and not altgr_down and self.visible and not self._animating:
                     self.hover_start = 0
                     self.collapse()
             except Exception:
@@ -921,6 +1455,8 @@ class MagicBarOverlay(ctk.CTkToplevel):
         if self.visible and mode == "browse":
             return
         self.visible = True
+        self.lift()
+        self.attributes("-topmost", True)
         
         if mode == "drop":
             self.scroll_frame.pack_forget()
@@ -1071,7 +1607,7 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         super().__init__()
         self.TkdndVersion = TkinterDnD._require(self)
         self.title("ClipSync Desktop")
-        self.geometry("520x680")
+        self.geometry("520x750")
         
         # Oculta da barra de tarefas no início
         self.hide_to_tray()
@@ -1080,6 +1616,7 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.last_remote_id = ""
         self.history_cache = []
         self.server_url = config.get("serverUrl", "${serverUrl}")
+        self.user_code = config.get("userCode", "${userCode}")
         self.device_id = config["deviceId"]
         self.device_name = config["deviceName"]
 
@@ -1114,6 +1651,22 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.status = ctk.CTkLabel(self.header, text="Conectando...", font=("Segoe UI", 11), text_color="#64748b")
         self.status.pack(anchor="w")
 
+        # Painel do Código de Conexão
+        self.usercode_frame = ctk.CTkFrame(self, fg_color="#0f172a", corner_radius=12, border_width=1, border_color="#1e293b")
+        self.usercode_frame.pack(fill="x", padx=20, pady=5)
+
+        ctk.CTkLabel(self.usercode_frame, text="🔑 Código de Conexão do Painel:", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        
+        usercode_input_layout = ctk.CTkFrame(self.usercode_frame, fg_color="transparent")
+        usercode_input_layout.pack(fill="x", padx=12, pady=(0, 8))
+
+        self.usercode_entry = ctk.CTkEntry(usercode_input_layout, placeholder_text="ex: USR-7721-A", font=("Segoe UI", 11))
+        self.usercode_entry.insert(0, self.user_code)
+        self.usercode_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self.btn_save_code = ctk.CTkButton(usercode_input_layout, text="Salvar Código", width=95, fg_color="#8b5cf6", hover_color="#7c3aed", command=self.update_user_code)
+        self.btn_save_code.pack(side="right")
+
         # Painel de IP
         self.config_frame = ctk.CTkFrame(self, fg_color="#0f172a", corner_radius=12, border_width=1, border_color="#1e293b")
         self.config_frame.pack(fill="x", padx=20, pady=5)
@@ -1147,7 +1700,7 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         # Terminal Log
         ctk.CTkLabel(self, text="Atividades do Sistema:", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=20, pady=(8, 2))
-        self.log_box = ctk.CTkTextbox(self, height=180, fg_color="#020617", border_color="#1e293b", border_width=1)
+        self.log_box = ctk.CTkTextbox(self, height=160, fg_color="#020617", border_color="#1e293b", border_width=1)
         self.log_box.pack(fill="both", expand=True, padx=20, pady=(0, 15))
         self.log_box.configure(state="disabled")
 
@@ -1156,6 +1709,20 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         self.log_box.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\\n")
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
+
+    def update_user_code(self):
+        new_code = self.usercode_entry.get().strip().upper()
+        if not new_code:
+            messagebox.showwarning("Aviso", "O código de conexão não pode estar vazio.")
+            return
+
+        self.user_code = new_code
+        config["userCode"] = new_code
+        save_config(config)
+
+        self.log(f"🔑 Código de Conexão atualizado para: {self.user_code}")
+        self._register_device()
+        messagebox.showinfo("ClipSync", f"Código de Conexão ({self.user_code}) salvo com sucesso!")
 
     def update_server_url(self):
         new_url = self.ip_entry.get().strip()
@@ -1192,7 +1759,7 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         def worker():
             try:
-                res = requests.post(f"{self.server_url}/api/clipboard", json=payload, timeout=5)
+                res = requests.post(f"{self.server_url}/api/clipboard", json=payload, headers={"X-User-Code": self.user_code}, timeout=5)
                 if res.status_code < 300:
                     self.log(f"✅ Card '{title}' criado na nuvem!")
                     self.card_title_entry.delete(0, 'end')
@@ -1233,11 +1800,12 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
             def worker():
                 try:
-                    # Usando PATCH para atualizar
-                    res = requests.patch(f"{self.server_url}/api/clipboard/{item_id}", json={
-                        "title": new_title,
-                        "content": new_content
-                    }, timeout=5)
+                    res = requests.patch(
+                        f"{self.server_url}/api/clipboard/{item_id}", 
+                        json={"title": new_title, "content": new_content}, 
+                        headers={"X-User-Code": self.user_code},
+                        timeout=5
+                    )
                     if res.status_code < 300:
                         self.log(f"✏️ Card '{new_title}' atualizado!")
                         edit_win.destroy()
@@ -1259,7 +1827,11 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
 
         def worker():
             try:
-                res = requests.delete(f"{self.server_url}/api/clipboard/{item_id}", timeout=5)
+                res = requests.delete(
+                    f"{self.server_url}/api/clipboard/{item_id}", 
+                    headers={"X-User-Code": self.user_code},
+                    timeout=5
+                )
                 if res.status_code < 300:
                     self.log(f"🗑️ Card '{title}' removido da nuvem!")
             except Exception as e:
@@ -1273,11 +1845,14 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
     def _register_device(self):
         def worker():
             try:
-                requests.post(f"{self.server_url}/api/devices", json={
-                    "id": self.device_id, "name": self.device_name, "type": "desktop", "os": "Windows/Python"
-                }, timeout=5)
-                self.status.configure(text=f"Ativo: {self.server_url}", text_color="#22c55e")
-                self.log("Dispositivo pareado com sucesso.")
+                requests.post(
+                    f"{self.server_url}/api/devices", 
+                    json={"id": self.device_id, "name": self.device_name, "type": "desktop", "os": "Windows/Python"},
+                    headers={"X-User-Code": self.user_code},
+                    timeout=5
+                )
+                self.status.configure(text=f"Ativo ({self.user_code}): {self.server_url}", text_color="#22c55e")
+                self.log(f"Dispositivo pareado com código {self.user_code}.")
             except Exception:
                 self.status.configure(text="Erro de conexão", text_color="#ef4444")
 
@@ -1295,7 +1870,8 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
                 res = requests.post(
                     f"{self.server_url}/api/upload", 
                     files={"file": f}, 
-                    data={"deviceId": self.device_id, "deviceName": self.device_name}, 
+                    data={"deviceId": self.device_id, "deviceName": self.device_name},
+                    headers={"X-User-Code": self.user_code},
                     timeout=20
                 )
             if res.status_code < 300:
@@ -1311,9 +1887,12 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
                     if curr and curr != self.last_clip:
                         self.last_clip = curr
                         self.log(f"Sincronizando: {curr[:20]}...")
-                        requests.post(f"{self.server_url}/api/clipboard", json={
-                            "content": curr, "deviceId": self.device_id, "deviceName": self.device_name, "type": "text"
-                        }, timeout=5)
+                        requests.post(
+                            f"{self.server_url}/api/clipboard", 
+                            json={"content": curr, "deviceId": self.device_id, "deviceName": self.device_name, "type": "text"},
+                            headers={"X-User-Code": self.user_code},
+                            timeout=5
+                        )
                 except Exception:
                     pass
                 time.sleep(1)
@@ -1321,7 +1900,11 @@ class ClipSyncApp(ctk.CTk, TkinterDnD.DnDWrapper):
         def sync_receiver():
             while True:
                 try:
-                    res = requests.get(f"{self.server_url}/api/clipboard", timeout=5).json()
+                    res = requests.get(
+                        f"{self.server_url}/api/clipboard", 
+                        headers={"X-User-Code": self.user_code},
+                        timeout=5
+                    ).json()
                     if res.get("items"):
                         self.history_cache = res["items"]
                         item_data = res["items"][0]
@@ -1367,11 +1950,12 @@ Write-Host "Certifique-se de ter Python 3 instalado e as bibliotecas necessarias
 Write-Host "pip install requests pyperclip customtkinter Pillow pystray tkinterdnd2" -ForegroundColor Gray
 `;
 
-  app.get('/api/client/clipsync.py', (req: Request, res: Response) => {
+  app.get(['/api/client/clipsync.py', '/api/download/clipsync_client.py', '/api/download/python-client'], (req: Request, res: Response) => {
     const serverUrl = resolveServerUrl(req);
+    const userCode = getUserCodeFromReq(req);
     res.setHeader('Content-Type', 'text/x-python; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="clipsync.py"');
-    res.send(generatePythonClient(serverUrl));
+    res.setHeader('Content-Disposition', `attachment; filename="clipsync_client_${userCode}.py"`);
+    res.send(generatePythonClient(serverUrl, userCode));
   });
 
   // PowerShell One-Liner Installer route

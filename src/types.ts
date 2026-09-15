@@ -51,6 +51,44 @@ export interface HotspotSettings {
   hapticFeedback: boolean;
 }
 
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  userCode: string; // Unique connection code e.g. "USR-7721-A"
+  avatarColor: string;
+  createdAt: number;
+}
+
+export interface GroupMember {
+  userId: string;
+  userName: string;
+  userCode: string;
+  avatarColor: string;
+  joinedAt: number;
+}
+
+export interface GroupCard extends ClipboardItem {
+  sharedByUserId: string;
+  sharedByUserName: string;
+  sharedByUserCode: string;
+  sharedByAvatarColor?: string;
+  sharedAt: number;
+  roomId: string;
+}
+
+export interface GroupRoom {
+  id: string; // room code e.g. "ROOM-4821"
+  roomCode: string;
+  name: string;
+  hostUserId: string;
+  hostUserName: string;
+  hostUserCode: string;
+  members: GroupMember[];
+  cards: GroupCard[];
+  createdAt: number;
+}
+
 export interface ServerSettings {
   publicUrl: string;
   detectedUrl: string;

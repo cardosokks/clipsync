@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ClipboardItem, Device } from './types';
+import { ClipboardItem, Device, UserProfile } from './types';
 import { TopRightCornerTrigger } from './components/TopRightCornerTrigger';
 import { QuickClipboardDrawer } from './components/QuickClipboardDrawer';
 import { ItemPreviewModal } from './components/ItemPreviewModal';
@@ -9,10 +9,21 @@ import { MainDashboard } from './components/MainDashboard';
 import { ManualEntryModal } from './components/ManualEntryModal';
 import { InstallationPage } from './components/InstallationPage';
 import { SettingsPage } from './components/SettingsPage';
+import { UserSystemModal } from './components/UserSystemModal';
+import { GroupRoomModal } from './components/GroupRoomModal';
+import { AuthScreen } from './components/AuthScreen';
 import { sounds } from './utils/sound';
 import { detectContentType, readFileAsDataUrl } from './utils/formatters';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('clipsync_authenticated') === 'true';
+  });
+  const [userCode, setUserCode] = useState<string>(() => {
+    return localStorage.getItem('clipsync_user_code') || 'USR-7721-A';
+  });
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+
   const [items, setItems] = useState<ClipboardItem[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [activeDeviceId, setActiveDeviceId] = useState<string>('dev-current');
@@ -22,6 +33,8 @@ export default function App() {
   const [isDeviceManagerOpen, setIsDeviceManagerOpen] = useState(false);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
   const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
 
@@ -34,14 +47,54 @@ export default function App() {
     setTimeout(() => setLiveAnnouncement(''), 3000);
   };
 
-  // 1. Initial load of items and devices from server
+  const handleLoginSuccess = (user: UserProfile, code: string) => {
+    setCurrentUser(user);
+    setUserCode(code);
+    localStorage.setItem('clipsync_user_code', code);
+    localStorage.setItem('clipsync_authenticated', 'true');
+    setIsAuthenticated(true);
+    sounds.playSuccess();
+    announce(`Bem-vindo, ${user.name}!`);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('clipsync_authenticated');
+    setIsAuthenticated(false);
+  };
+
+  // Save user code to localStorage
+  const handleSelectUserCode = (code: string) => {
+    const clean = code.toUpperCase().trim();
+    setUserCode(clean);
+    localStorage.setItem('clipsync_user_code', clean);
+  };
+
+  // Fetch current user details
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const res = await fetch('/api/users/me', {
+          headers: { 'X-User-Code': userCode },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCurrentUser(data.user);
+        }
+      } catch (err) {
+        console.error('Erro ao carregar dados do usuário:', err);
+      }
+    };
+    fetchUser();
+  }, [userCode]);
+
+  // 1. Initial load of items and devices for the current userCode
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsSyncing(true);
         const [itemsRes, devicesRes] = await Promise.all([
-          fetch('/api/clipboard'),
-          fetch('/api/devices'),
+          fetch('/api/clipboard', { headers: { 'X-User-Code': userCode } }),
+          fetch('/api/devices', { headers: { 'X-User-Code': userCode } }),
         ]);
 
         if (itemsRes.ok) {
@@ -61,14 +114,13 @@ export default function App() {
     };
 
     fetchData();
-  }, []);
+  }, [userCode]);
 
-  // 2. Real-time Multi-device Sync via Server-Sent Events (SSE) + BroadcastChannel
+  // 2. Real-time Multi-device Sync via Server-Sent Events (SSE) for current userCode
   useEffect(() => {
-    // A. BroadcastChannel for instant local multi-tab sync
     try {
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        const channel = new BroadcastChannel('clipsync_channel');
+        const channel = new BroadcastChannel(`clipsync_channel_${userCode}`);
         broadcastChannelRef.current = channel;
 
         channel.onmessage = (event) => {
@@ -93,9 +145,11 @@ export default function App() {
       console.warn('BroadcastChannel não suportado:', e);
     }
 
-    // B. SSE connection for real-time live push from remote devices
     try {
-      const es = new EventSource('/api/events');
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+      const es = new EventSource(`/api/events?userCode=${userCode}`);
       eventSourceRef.current = es;
 
       es.addEventListener('clipboard_created', (e: MessageEvent) => {
@@ -162,7 +216,7 @@ export default function App() {
       broadcastChannelRef.current?.close();
       eventSourceRef.current?.close();
     };
-  }, []);
+  }, [userCode]);
 
   // Current active device
   const currentDevice = devices.find((d) => d.id === activeDeviceId) ||
@@ -188,7 +242,10 @@ export default function App() {
 
         const res = await fetch('/api/clipboard', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Code': userCode,
+          },
           body: JSON.stringify(payload),
         });
 
@@ -214,7 +271,7 @@ export default function App() {
         setIsSyncing(false);
       }
     },
-    [currentDevice]
+    [currentDevice, userCode]
   );
 
   // 3. Global Native Ctrl+V / Paste Listener
@@ -324,7 +381,10 @@ export default function App() {
     try {
       await fetch(`/api/clipboard/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Code': userCode,
+        },
         body: JSON.stringify({ isPinned: newPinned }),
       });
       broadcastChannelRef.current?.postMessage({
@@ -340,7 +400,10 @@ export default function App() {
   const handleDeleteItem = async (id: string) => {
     setItems((prev) => prev.filter((i) => i.id !== id));
     try {
-      await fetch(`/api/clipboard/${id}`, { method: 'DELETE' });
+      await fetch(`/api/clipboard/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Code': userCode },
+      });
       broadcastChannelRef.current?.postMessage({ type: 'delete', payload: { id } });
     } catch (err) {
       console.error('Erro ao excluir item:', err);
@@ -351,7 +414,10 @@ export default function App() {
   const handleClearUnpinned = async () => {
     setItems((prev) => prev.filter((i) => i.isPinned));
     try {
-      await fetch('/api/clipboard/clear-unpinned', { method: 'POST' });
+      await fetch('/api/clipboard/clear-unpinned', {
+        method: 'POST',
+        headers: { 'X-User-Code': userCode },
+      });
       broadcastChannelRef.current?.postMessage({ type: 'clear' });
     } catch (err) {
       console.error('Erro ao limpar itens:', err);
@@ -363,7 +429,10 @@ export default function App() {
     try {
       const res = await fetch('/api/devices', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Code': userCode,
+        },
         body: JSON.stringify(deviceData),
       });
       if (res.ok) {
@@ -378,7 +447,10 @@ export default function App() {
   // Remove device
   const handleRemoveDevice = async (id: string) => {
     try {
-      const res = await fetch(`/api/devices/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/devices/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Code': userCode },
+      });
       if (res.ok) {
         setDevices((prev) => prev.filter((d) => d.id !== id));
       }
@@ -392,7 +464,10 @@ export default function App() {
     try {
       await fetch('/api/devices/simulate-sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Code': userCode,
+        },
         body: JSON.stringify({
           deviceId,
           content: sampleContent,
@@ -400,6 +475,24 @@ export default function App() {
       });
     } catch (err) {
       console.error('Erro ao simular sincronização:', err);
+    }
+  };
+
+  // Regenerate Code handler
+  const handleRegenerateCode = async () => {
+    try {
+      const res = await fetch('/api/users/code/regenerate', {
+        method: 'POST',
+        headers: { 'X-User-Code': userCode },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        handleSelectUserCode(data.userCode);
+        setCurrentUser(data.user);
+        announce(`Novo código gerado com sucesso: ${data.userCode}`);
+      }
+    } catch (err) {
+      console.error('Erro ao regerar código:', err);
     }
   };
 
@@ -415,13 +508,20 @@ export default function App() {
     try {
       await fetch(`/api/clipboard/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Code': userCode,
+        },
         body: JSON.stringify({ content: newContent, title: newTitle }),
       });
     } catch (err) {
       console.error('Erro ao salvar edição:', err);
     }
   };
+
+  if (!isAuthenticated) {
+    return <AuthScreen onLoginSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <div className="relative min-h-screen bg-[#0a0c14] font-sans text-white overflow-x-hidden selection:bg-blue-500/30">
@@ -442,7 +542,7 @@ export default function App() {
         {liveAnnouncement}
       </div>
 
-      {/* 1. Top-Right Corner Trigger & Drag Zone (The requested gesture & proximity hotspot) */}
+      {/* 1. Top-Right Corner Trigger & Drag Zone */}
       <TopRightCornerTrigger
         onOpenDrawer={() => setIsDrawerOpen(true)}
         isDrawerOpen={isDrawerOpen}
@@ -457,6 +557,10 @@ export default function App() {
           items={items}
           devices={devices}
           activeDevice={currentDevice}
+          currentUser={currentUser}
+          userCode={userCode}
+          onOpenUserModal={() => setIsUserModalOpen(true)}
+          onOpenGroupModal={() => setIsGroupModalOpen(true)}
           onOpenDrawer={() => setIsDrawerOpen(true)}
           onOpenDeviceManager={() => setIsDeviceManagerOpen(true)}
           onTogglePin={handleTogglePin}
@@ -468,11 +572,14 @@ export default function App() {
           onClearUnpinned={handleClearUnpinned}
           onOpenWindowsClient={() => setView('install')}
           onOpenSettings={() => setView('settings')}
+          onLogout={handleLogout}
         />
       ) : view === 'install' ? (
         <InstallationPage 
           onBack={() => setView('dashboard')} 
           serverUrl={window.location.origin} 
+          userCode={userCode}
+          currentUser={currentUser}
           onOpenSettings={() => setView('settings')}
         />
       ) : (
@@ -482,7 +589,7 @@ export default function App() {
         />
       )}
 
-      {/* 3. Quick-Access Clipboard Drawer (Activated by corner proximity or drag) */}
+      {/* 3. Quick-Access Clipboard Drawer */}
       <QuickClipboardDrawer
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
@@ -533,6 +640,23 @@ export default function App() {
         isOpen={isManualEntryOpen}
         onClose={() => setIsManualEntryOpen(false)}
         onAdd={handleAddNewItem}
+      />
+
+      {/* 8. User System & Connection Code Modal */}
+      <UserSystemModal
+        isOpen={isUserModalOpen}
+        onClose={() => setIsUserModalOpen(false)}
+        currentUser={currentUser}
+        onSelectUserCode={handleSelectUserCode}
+        onRegenerateCode={handleRegenerateCode}
+      />
+
+      {/* 9. Real-Time Group Sharing Room Modal */}
+      <GroupRoomModal
+        isOpen={isGroupModalOpen}
+        onClose={() => setIsGroupModalOpen(false)}
+        currentUser={currentUser}
+        userItems={items}
       />
     </div>
   );

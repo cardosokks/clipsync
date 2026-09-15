@@ -28,24 +28,24 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
   const dragCounterRef = useRef(0);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Proximity detection: measures mouse distance to the top-right corner
+  // Proximity detection: measures mouse distance to the RIGHT-CENTER of screen
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      // Top-right corner coordinates: (window.innerWidth, 0)
-      const cornerX = window.innerWidth;
-      const cornerY = 0;
-      const dx = cornerX - e.clientX;
-      const dy = e.clientY - cornerY;
+      // Right-center coordinates: (window.innerWidth, window.innerHeight / 2)
+      const targetX = window.innerWidth;
+      const targetY = window.innerHeight / 2;
+      const dx = targetX - e.clientX;
+      const dy = targetY - e.clientY;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
-      const threshold = 220; // 220px radius from top-right corner
+      const threshold = 220; // 220px radius from right-center point
       if (distance < threshold) {
         setIsNearCorner(true);
         const score = Math.max(0, Math.min(1, 1 - distance / threshold));
         setProximityScore(score);
 
-        // Sound effect on first entry
-        if (distance < 80 && !isNearCorner) {
+        // Sound effect on entry
+        if (distance < 90 && !isNearCorner) {
           sounds.playProximityHover();
         }
       } else {
@@ -105,7 +105,7 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
     };
   }, []);
 
-  // Handle dropping files or text onto the top-right corner target
+  // Handle dropping files or text onto the right-center target
   const handleTargetDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -162,7 +162,6 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
   };
 
   const handleMouseEnter = () => {
-    // Open immediately or after soft delay if hovering directly on the corner tab
     hoverTimeoutRef.current = setTimeout(() => {
       onOpenDrawer();
     }, 180);
@@ -177,32 +176,31 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
 
   return (
     <>
-      {/* 1. Subtle persistent corner beacon and hover trigger (Top-Right) */}
+      {/* 1. Right-Center Hotspot & Trigger Tab */}
       <aside
-        id="top-right-corner-hotspot"
-        aria-label="Ativação da Área de Transferência no canto superior direito"
+        id="right-center-hotspot"
+        aria-label="Ativação da Área de Transferência na lateral direita central"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onClick={onOpenDrawer}
-        className={`fixed top-0 right-0 z-40 transition-all duration-300 select-none cursor-pointer ${
+        className={`fixed right-0 top-1/2 -translate-y-1/2 z-40 transition-all duration-300 select-none cursor-pointer ${
           isDrawerOpen ? 'pointer-events-none opacity-0' : 'pointer-events-auto'
         }`}
       >
-        {/* Invisible proximity zone to catch mouse movement and smooth entry */}
-        <div className="absolute top-0 right-0 w-32 h-24" />
+        {/* Invisible proximity zone around right-center */}
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-28 h-48 pointer-events-none" />
 
-        {/* Visual Badge that expands on proximity or drag */}
+        {/* Visual Badge anchored to right-center edge */}
         <motion.div
           animate={{
             scale: isNearCorner || isDraggingOverScreen ? 1.05 : 1,
-            x: isNearCorner || isDraggingOverScreen ? 0 : 3,
-            y: isNearCorner || isDraggingOverScreen ? 0 : -3,
+            x: isNearCorner || isDraggingOverScreen ? 0 : 4,
           }}
           transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-          className={`flex items-center gap-2.5 px-4 py-3 rounded-bl-3xl shadow-2xl backdrop-blur-xl border-b border-l transition-all ${
+          className={`flex items-center gap-2.5 px-3.5 py-3 rounded-l-2xl shadow-2xl backdrop-blur-xl border-t border-b border-l transition-all ${
             isNearCorner || isDraggingOverScreen
-              ? 'bg-blue-500/20 border-white/30 text-white shadow-blue-500/20 ring-1 ring-blue-400/30'
-              : 'bg-white/5 border-white/15 text-slate-200 hover:bg-white/10'
+              ? 'bg-blue-600/30 border-blue-400/50 text-white shadow-blue-500/25 ring-1 ring-blue-400/40'
+              : 'bg-[#0f172a]/90 border-white/15 text-slate-200 hover:bg-white/15'
           }`}
         >
           {/* Glowing pulse indicator dot */}
@@ -218,7 +216,7 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
             <div className="flex flex-col text-left">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-bold tracking-tight text-white">
-                  Ctrl+C Histórico
+                  Gaveta
                 </span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-white/10 text-blue-300 border border-white/15">
                   {itemCount}
@@ -226,11 +224,11 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
               </div>
               <span className="text-[10px] text-slate-400 flex items-center gap-1">
                 {isDraggingOverScreen ? (
-                  <span className="text-blue-300 font-semibold">Solte aqui no canto!</span>
+                  <span className="text-blue-300 font-semibold">Solte na lateral!</span>
                 ) : isNearCorner ? (
-                  <span className="text-blue-300 font-medium">Clique ou aproxime</span>
+                  <span className="text-blue-300 font-medium">Clique para abrir</span>
                 ) : (
-                  <span>Aproxime o mouse</span>
+                  <span>Aproxime mouse</span>
                 )}
               </span>
             </div>
@@ -242,21 +240,21 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
       <AnimatePresence>
         {isDraggingOverScreen && !isDrawerOpen && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.85, x: 20, y: -20 }}
-            animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-            exit={{ opacity: 0, scale: 0.85, x: 20, y: -20 }}
+            initial={{ opacity: 0, scale: 0.85, x: 30 }}
+            animate={{ opacity: 1, scale: 1, x: 0 }}
+            exit={{ opacity: 0, scale: 0.85, x: 30 }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            id="top-right-drop-target"
+            id="right-center-drop-target"
             onDragOver={(e) => {
               e.preventDefault();
               setIsDraggingOverTarget(true);
             }}
             onDragLeave={() => setIsDraggingOverTarget(false)}
             onDrop={handleTargetDrop}
-            className={`fixed top-3 right-3 z-50 w-72 sm:w-84 p-6 rounded-3xl border-2 border-dashed transition-all duration-200 shadow-2xl backdrop-blur-2xl ${
+            className={`fixed right-4 top-1/2 -translate-y-1/2 z-50 w-72 sm:w-80 p-6 rounded-3xl border-2 border-dashed transition-all duration-200 shadow-2xl backdrop-blur-2xl ${
               isDraggingOverTarget
-                ? 'bg-blue-900/60 border-blue-400 text-blue-100 ring-4 ring-blue-500/30 scale-105'
-                : 'bg-[#0a0c14]/80 border-white/30 text-white hover:border-blue-400/60'
+                ? 'bg-blue-900/70 border-blue-400 text-blue-100 ring-4 ring-blue-500/30 scale-105'
+                : 'bg-[#0a0c14]/90 border-white/30 text-white hover:border-blue-400/60'
             }`}
           >
             <div className="flex flex-col items-center text-center gap-3 pointer-events-none">
@@ -271,10 +269,10 @@ export const TopRightCornerTrigger: React.FC<TopRightCornerTriggerProps> = ({
               <div>
                 <h4 className="text-sm font-bold text-white flex items-center justify-center gap-1.5 tracking-tight">
                   <Sparkles className="w-4 h-4 text-blue-400" />
-                  Solte no Canto para Sincronizar
+                  Solte para Sincronizar
                 </h4>
                 <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                  Texto selecionado, links ou arquivos arrastados são salvos e enviados a todos os dispositivos.
+                  Texto selecionado ou arquivos arrastados são salvos e enviados a todos os dispositivos.
                 </p>
               </div>
 
